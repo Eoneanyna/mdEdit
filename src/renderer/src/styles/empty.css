@@ -1,0 +1,9 @@
+/*
+ * 占位样式表。
+ *
+ * crepe 的 common/style.css 会链式引入 latex.css -> katex/dist/katex.min.css,
+ * 后者带来几十个 KaTeX 字体文件。本项目已禁用 Latex 特性(见 editor.ts),
+ * 这些字体纯属占体积,故在 electron.vite.config.ts 中把该 CSS 别名到此空文件。
+ *
+ * 若将来启用公式渲染,移除那条 alias 即可。
+ */

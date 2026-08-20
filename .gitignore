@@ -1,0 +1,16 @@
+node_modules/
+out/
+dist/
+release/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# build/ 下只收版构建实际使用的图标与其源图,其余为中间素材
+build/*.png
+!build/icon.png
+!build/icon-source.png
+!build/icon-small.png

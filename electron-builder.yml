@@ -1,0 +1,76 @@
+appId: com.mdedit.app
+productName: mdEdit
+copyright: Copyright © 2026 mdEdit
+
+directories:
+  buildResources: build
+  output: release
+
+# 打包阶段拉取 Electron 二进制走国内镜像,不依赖 .npmrc 的 npm 自定义 config
+# (后者在 npm 12 会失效,这里独立配置一份保证打包链路始终可用)
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+
+files:
+  - out/**
+  - package.json
+
+# 窗口图标需要在运行时读取真实文件,而 buildResources 不会被打进包,
+# 故额外复制一份到 resources 目录。
+# Windows 用多尺寸 ico(16~48 为重绘的简化图,64 以上为原手绘图),
+# Linux 只认 png。
+extraResources:
+  - from: build/icon.ico
+    to: icon.ico
+  - from: build/icon.png
+    to: icon.png
+
+# 注册可由本应用打开的文档类型。
+# 不含 txt —— 纯文本的默认程序通常另有安排,不宜擅自抢占
+fileAssociations:
+  - ext: md
+    name: Markdown 文档
+    description: Markdown 文档
+    role: Editor
+  - ext: markdown
+    name: Markdown 文档
+    description: Markdown 文档
+    role: Editor
+  - ext: mdown
+    name: Markdown 文档
+    description: Markdown 文档
+    role: Editor
+  - ext: mkd
+    name: Markdown 文档
+    description: Markdown 文档
+    role: Editor
+
+# 各平台产物:Windows 出安装包,macOS 兼顾 Intel 与 Apple Silicon,Linux 出免安装与 deb
+win:
+  # 指定多尺寸 ico,而非让 electron-builder 从单张 png 缩放 ——
+  # 原手绘图细节太密,缩到 16px 会糊成一团
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  category: public.app-category.productivity
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}

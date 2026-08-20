@@ -1,0 +1,618 @@
+/* crepe 主题:浅色为基线,暗色仅在系统偏好为暗时叠加覆盖 */
+@import '@milkdown/crepe/theme/common/style.css';
+@import '@milkdown/crepe/theme/frame.css';
+@import '@milkdown/crepe/theme/frame-dark.css' screen and (prefers-color-scheme: dark);
+
+:root {
+  --bg: #ffffff;
+  --bg-subtle: #f6f7f9;
+  --bg-hover: #eaeef2;
+  --fg: #1f2328;
+  --fg-muted: #656d76;
+  --border: #d8dee4;
+  --accent: #0969da;
+  --accent-soft: #ddf4ff;
+
+  --kind-markdown: #0969da;
+  --kind-text: #6e7781;
+  --kind-word: #2b579a;
+  --kind-excel: #1d6f42;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+    'Hiragino Sans GB', sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, 'SF Mono', Menlo, monospace;
+
+  --sidebar-width: 240px;
+  --status-height: 28px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c2128;
+    --bg-subtle: #22272e;
+    --bg-hover: #2d333b;
+    --fg: #dfe3e8;
+    --fg-muted: #909dab;
+    --border: #373e47;
+    --accent: #539bf5;
+    --accent-soft: #1c2f47;
+
+    --kind-markdown: #6cb6ff;
+    --kind-text: #909dab;
+    --kind-word: #6a9fe0;
+    --kind-excel: #57ab5a;
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 左树右编辑的两栏骨架 */
+.app {
+  height: 100%;
+  display: flex;
+}
+
+.workbench {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* 查找栏以绝对定位浮在编辑区之上,不挤占正文宽度 */
+  position: relative;
+}
+
+/* ---------- 查找替换 ---------- */
+
+.search-bar {
+  position: absolute;
+  top: 10px;
+  right: 22px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 16%);
+}
+
+.search-bar[hidden] {
+  display: none;
+}
+
+.search-bar__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-bar__input {
+  width: 180px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.search-bar__input:focus {
+  border-color: var(--accent);
+}
+
+.search-bar__count {
+  min-width: 48px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+/* 有查询词但零命中时提示 */
+.search-bar__count.is-empty {
+  color: #cf222e;
+}
+
+.search-bar__btn {
+  flex-shrink: 0;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.search-bar__btn:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.search-bar__btn--text {
+  border-color: var(--border);
+}
+
+/* 命中高亮由 ProseMirror decoration 注入 */
+.search-hit {
+  background: #fff3a3;
+  border-radius: 2px;
+}
+
+.search-hit--current {
+  background: #ffab3d;
+}
+
+@media (prefers-color-scheme: dark) {
+  .search-hit {
+    background: #5a4a00;
+  }
+  .search-hit--current {
+    background: #9a6b00;
+  }
+  .search-bar__count.is-empty {
+    color: #ff7b72;
+  }
+}
+
+/* ---------- 侧边栏 ---------- */
+
+.sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-subtle);
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+/* 顶部标签:文件树与大纲共用左栏,同一时刻只显示一个 */
+.sidebar__tabs {
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar__tab {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--fg-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.sidebar__tab:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.sidebar__tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.sidebar__panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar__panel.is-hidden {
+  display: none;
+}
+
+.sidebar__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.sidebar__header {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 文件名要保持原样,大写会把 .md 变成 .MD */
+.sidebar__title--filename {
+  text-transform: none;
+}
+
+.sidebar__action {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.sidebar__action:hover {
+  background: var(--bg-hover);
+}
+
+/* 筛选生效时让按钮显出状态,避免用户忘了自己开着筛选 */
+.sidebar__action.is-on {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.tree__empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+/* ---------- 大纲 ---------- */
+
+.outline__item {
+  padding: 3px 10px 3px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-left: 2px solid transparent;
+}
+
+.outline__item:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.outline__item.is-active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* 层级越深字号越小,一眼看出结构 */
+.outline__item--h1 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.outline__item--h2 {
+  font-size: 13px;
+}
+.outline__item--h3,
+.outline__item--h4,
+.outline__item--h5,
+.outline__item--h6 {
+  font-size: 12px;
+}
+
+.outline__empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+/* ---------- 文件树 ---------- */
+
+.tree,
+.tree__children {
+  list-style: none;
+}
+
+.tree__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding-right: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tree__row:hover {
+  background: var(--bg-hover);
+}
+
+.tree__row.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tree__arrow {
+  width: 12px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.tree__icon {
+  width: 14px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tree__icon--markdown {
+  color: var(--kind-markdown);
+}
+.tree__icon--text {
+  color: var(--kind-text);
+}
+.tree__icon--word {
+  color: var(--kind-word);
+}
+.tree__icon--excel {
+  color: var(--kind-excel);
+}
+
+.tree__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 通用浮层菜单(打开方式 / 类型筛选共用) ---------- */
+
+.popup {
+  position: fixed;
+  z-index: 100;
+  min-width: 180px;
+  max-width: 360px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.popup__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.popup__item:hover {
+  background: var(--bg-hover);
+}
+
+/* 固定宽度,保证有勾与无勾时文字不左右跳动 */
+.popup__check {
+  flex-shrink: 0;
+  width: 14px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.popup__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.popup__label {
+  display: block;
+}
+
+.popup__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popup__divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+/* ---------- 输入对话框 ---------- */
+
+.prompt-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 32%);
+}
+
+.prompt {
+  width: 320px;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 24%);
+}
+
+.prompt__title {
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.prompt__input {
+  width: 100%;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.prompt__input:focus {
+  border-color: var(--accent);
+}
+
+/* 常驻占位,有无错误时对话框高度不跳动 */
+.prompt__error {
+  min-height: 18px;
+  padding-top: 4px;
+  font-size: 12px;
+  color: #cf222e;
+}
+
+.prompt__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.prompt__btn {
+  padding: 5px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.prompt__btn:hover {
+  background: var(--bg-hover);
+}
+
+.prompt__btn--primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.prompt__btn--primary:hover {
+  filter: brightness(1.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  .prompt__error {
+    color: #ff7b72;
+  }
+}
+
+/* ---------- 编辑区 ---------- */
+
+/* 编辑区占满剩余高度,滚动条交给它自己。
+   注意:类名不能叫 .editor —— milkdown 的 ProseMirror 元素自带 editor 类,
+   同名会让这里的 overflow 规则落到编辑区上,形成嵌套滚动容器。 */
+.editor-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Typora 式的单栏排版:内容居中并限制行宽,避免宽屏下一行拉太长 */
+.editor-pane .milkdown {
+  background: var(--bg);
+}
+
+.editor-pane .milkdown .ProseMirror {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 48px 32px 40vh 32px;
+}
+
+/* ---------- 状态栏 ---------- */
+
+.status {
+  height: var(--status-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 14px;
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.status > :first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status__hint {
+  color: var(--accent);
+  flex-shrink: 0;
+}

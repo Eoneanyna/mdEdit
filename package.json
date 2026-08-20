@@ -1,0 +1,48 @@
+{
+  "name": "mdedit",
+  "version": "0.1.0",
+  "description": "本地优先的所见即所得 Markdown 编辑器",
+  "main": "./out/main/index.js",
+  "author": "cxy <adc.rabbit@foxmail.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/Eoneanyna/mdEdit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Eoneanyna/mdEdit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Eoneanyna/mdEdit/issues"
+  },
+  "keywords": [
+    "markdown",
+    "editor",
+    "wysiwyg",
+    "electron",
+    "milkdown"
+  ],
+  "type": "commonjs",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "electron-vite build",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "build:win": "npm run build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:linux": "npm run build && electron-builder --linux"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6"
+  },
+  "dependencies": {
+    "@milkdown/crepe": "^7.22.1",
+    "@milkdown/kit": "^7.22.1",
+    "chokidar": "^5.0.0"
+  }
+}
