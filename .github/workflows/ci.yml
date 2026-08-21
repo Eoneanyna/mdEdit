@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      # e2e 启动真实 Electron 窗口:Linux 无显示,需 Xvfb;Windows/macOS runner 自带会话
+      - name: E2E tests (Linux via Xvfb)
+        if: matrix.os == 'ubuntu-latest'
+        run: xvfb-run -a npm run test:e2e
+
+      - name: E2E tests
+        if: matrix.os != 'ubuntu-latest'
+        run: npm run test:e2e
