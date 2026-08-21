@@ -17,7 +17,7 @@ test('查找替换走真实 UI:计数、跳转、全部替换后落盘', async (
   const { win } = harness
   const file = join(makeWorkspace({ '查找.md': 'alpha beta alpha gamma alpha\n' }), '查找.md')
 
-  await win.evaluate((p: string) => void (window as unknown as PageHooks).__actions.openPath(p), file)
+  await win.evaluate((p: string) => (window as unknown as PageHooks).__actions.openPath(p), file)
   await expect.poll(() => win.evaluate(() => (window as unknown as PageHooks).__doc.name)).toBe(
     '查找.md'
   )

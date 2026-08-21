@@ -17,7 +17,7 @@ test('文件被外部程序修改后,确认重新载入并同步新内容', asyn
   const { win } = harness
   const file = join(makeWorkspace({ '外部.md': '第一行\n' }), '外部.md')
 
-  await win.evaluate((p: string) => void (window as unknown as PageHooks).__actions.openPath(p), file)
+  await win.evaluate((p: string) => (window as unknown as PageHooks).__actions.openPath(p), file)
   await expect.poll(() => win.evaluate(() => (window as unknown as PageHooks).__doc.name)).toBe(
     '外部.md'
   )

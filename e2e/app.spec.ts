@@ -33,7 +33,7 @@ test('打开→直接保存零改动(核心卖点)', async () => {
   const { win } = harness
   const file = join(makeWorkspace({ '稳定.md': ZERO_DIFF_FIXTURE }), '稳定.md')
 
-  await win.evaluate((p: string) => void (window as unknown as PageHooks).__actions.openPath(p), file)
+  await win.evaluate((p: string) => (window as unknown as PageHooks).__actions.openPath(p), file)
   await expect.poll(() => win.evaluate(() => (window as unknown as PageHooks).__doc.name)).toBe(
     '稳定.md'
   )
@@ -50,7 +50,7 @@ test('编辑后标题出现 ● 标记,未保存时关窗被拦截,保存后可�
   const { win, app } = harness
   const file = join(makeWorkspace({ '草稿.md': '原文\n' }), '草稿.md')
 
-  await win.evaluate((p: string) => void (window as unknown as PageHooks).__actions.openPath(p), file)
+  await win.evaluate((p: string) => (window as unknown as PageHooks).__actions.openPath(p), file)
   await expect.poll(() => win.evaluate(() => (window as unknown as PageHooks).__doc.name)).toBe(
     '草稿.md'
   )
@@ -84,7 +84,7 @@ test('停止输入 2 秒后自动落盘', async () => {
   const { win } = harness
   const file = join(makeWorkspace({ '自动.md': '原内容\n' }), '自动.md')
 
-  await win.evaluate((p: string) => void (window as unknown as PageHooks).__actions.openPath(p), file)
+  await win.evaluate((p: string) => (window as unknown as PageHooks).__actions.openPath(p), file)
   await expect.poll(() => win.evaluate(() => (window as unknown as PageHooks).__doc.name)).toBe(
     '自动.md'
   )

@@ -33,11 +33,9 @@ export interface PageHooks {
   }
 }
 
-/** 页面内等待,避免回调式 Promise */
+/** 测试进程内的定长等待 */
 export function delay(ms: number): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>()
-  setTimeout(resolve, ms)
-  return promise
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
 /**

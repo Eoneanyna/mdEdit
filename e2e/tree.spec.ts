@@ -17,7 +17,7 @@ test('文件树加载工作区,右键新建文件落盘并打开', async () => {
   const { win } = harness
   const dir = makeWorkspace({ 'notes.md': '已有内容\n' })
 
-  await win.evaluate((d: string) => void (window as unknown as PageHooks).__tree.setRoot(d), dir)
+  await win.evaluate((d: string) => (window as unknown as PageHooks).__tree.setRoot(d), dir)
   const existing = win.locator('.tree__row', { hasText: 'notes.md' })
   await expect(existing).toBeVisible()
 
