@@ -1,9 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { ipcMain } from 'electron'
 import { type OpenedDocument, isEditableKind, kindOf } from '@shared/ipc'
 import { buildAppMenu } from '../menu'
 import * as store from '../store'
+import { pickOnePath, showSaveDialog } from './dialogs'
 import { guard } from './guard'
 import { noteOwnWrite } from './watcher'
 
@@ -28,25 +29,15 @@ async function openDocument(filePath: string): Promise<OpenedDocument> {
 }
 
 export function registerFileIpc(): void {
-  ipcMain.handle('file:choose', async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
-    const options: Electron.OpenDialogOptions = {
-      properties: ['openFile'],
-      filters: EDITABLE_FILTERS
-    }
-    const result = window
-      ? await dialog.showOpenDialog(window, options)
-      : await dialog.showOpenDialog(options)
-    if (result.canceled || result.filePaths.length === 0) return null
-    return result.filePaths[0]!
-  })
+  ipcMain.handle('file:choose', (event) =>
+    pickOnePath(event, { properties: ['openFile'], filters: EDITABLE_FILTERS })
+  )
 
   ipcMain.handle('file:choose-save-path', async (event, defaultName: string) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
-    const options = { defaultPath: defaultName, filters: EDITABLE_FILTERS }
-    const result = window
-      ? await dialog.showSaveDialog(window, options)
-      : await dialog.showSaveDialog(options)
+    const result = await showSaveDialog(event, {
+      defaultPath: defaultName,
+      filters: EDITABLE_FILTERS
+    })
     if (result.canceled || !result.filePath) return null
     return result.filePath
   })

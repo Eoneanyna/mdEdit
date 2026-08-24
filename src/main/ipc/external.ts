@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
 import { basename, extname } from 'node:path'
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { ipcMain, shell } from 'electron'
 import { type ExternalApp, type FileKind, kindOf } from '@shared/ipc'
 import * as store from '../store'
+import { pickOnePath } from './dialogs'
 import { guard } from './guard'
 
 /** 各平台下"可执行程序"的选择过滤器 */
@@ -59,18 +60,12 @@ export function registerExternalIpc(): void {
   )
 
   ipcMain.handle('external:choose-app', async (event): Promise<ExternalApp | null> => {
-    const window = BrowserWindow.fromWebContents(event.sender)
-    const options: Electron.OpenDialogOptions = {
+    const appPath = await pickOnePath(event, {
       title: '选择用于打开的应用程序',
       properties: ['openFile'],
       filters: appFilters()
-    }
-    const result = window
-      ? await dialog.showOpenDialog(window, options)
-      : await dialog.showOpenDialog(options)
-    if (result.canceled || result.filePaths.length === 0) return null
-    const appPath = result.filePaths[0]!
-    return { name: appNameOf(appPath), path: appPath }
+    })
+    return appPath ? { name: appNameOf(appPath), path: appPath } : null
   })
 
   ipcMain.handle('external:remembered-apps', (_event, kind: FileKind) =>

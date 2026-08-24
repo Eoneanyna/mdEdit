@@ -16,6 +16,7 @@ import { DocumentState } from './state/document'
 import { countText } from './state/word-count'
 import { DIVIDER, type PopupItem, showPopup } from './ui/popup'
 import { showPrompt } from './ui/prompt'
+import { baseName, dirName } from './utils/path'
 import './styles/main.css'
 
 const root = document.querySelector<HTMLDivElement>('#app')
@@ -58,18 +59,6 @@ function el<T extends HTMLElement>(selector: string): T {
   const node = document.querySelector<T>(selector)
   if (!node) throw new Error(`界面节点缺失:${selector}`)
   return node
-}
-
-/** 渲染进程没有 path 模块,按分隔符取末段 */
-function baseName(fullPath: string): string {
-  const parts = fullPath.split(/[\\/]/).filter(Boolean)
-  return parts[parts.length - 1] ?? fullPath
-}
-
-/** 取所在目录,取不到(如路径本身就是根)时返回 null */
-function dirName(fullPath: string): string | null {
-  const index = Math.max(fullPath.lastIndexOf('\\'), fullPath.lastIndexOf('/'))
-  return index > 0 ? fullPath.slice(0, index) : null
 }
 
 /** 停止输入多久后触发自动保存 */

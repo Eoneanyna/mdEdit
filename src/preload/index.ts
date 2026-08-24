@@ -11,6 +11,20 @@ import {
   TEST_HOOKS_FLAG
 } from '@shared/ipc'
 
+/**
+ * 订阅主进程的推送,返回取消订阅的函数。
+ * 各订阅接口的差异只在通道名与载荷类型,故统一由此生成,
+ * 新增一路推送只需加一行,不必再抄一遍 on/off 的样板。
+ */
+function subscribe<A extends unknown[]>(
+  channel: string,
+  handler: (...args: A) => void
+): () => void {
+  const listener = (_event: IpcRendererEvent, ...args: A): void => handler(...args)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.off(channel, listener)
+}
+
 const api: RendererApi = {
   platform: process.platform as Platform,
 
@@ -23,11 +37,8 @@ const api: RendererApi = {
     node: process.versions.node
   },
 
-  onMenu(channel: MenuChannel, handler: () => void): () => void {
-    const listener = (_event: IpcRendererEvent): void => handler()
-    ipcRenderer.on(channel, listener)
-    return () => ipcRenderer.off(channel, listener)
-  },
+  onMenu: (channel: MenuChannel, handler: () => void): (() => void) =>
+    subscribe(channel, handler),
 
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('workspace:choose-folder'),
 
@@ -72,19 +83,13 @@ const api: RendererApi = {
 
   takePendingFile: (): Promise<string | null> => ipcRenderer.invoke('app:take-pending-file'),
 
-  onOpenFile(handler: (filePath: string) => void): () => void {
-    const listener = (_event: IpcRendererEvent, filePath: string): void => handler(filePath)
-    ipcRenderer.on('app:open-file', listener)
-    return () => ipcRenderer.off('app:open-file', listener)
-  },
+  onOpenFile: (handler: (filePath: string) => void): (() => void) =>
+    subscribe('app:open-file', handler),
 
   getAutoSave: (): Promise<boolean> => ipcRenderer.invoke('app:get-autosave'),
 
-  onAutoSaveChanged(handler: (enabled: boolean) => void): () => void {
-    const listener = (_event: IpcRendererEvent, enabled: boolean): void => handler(enabled)
-    ipcRenderer.on('app:autosave-changed', listener)
-    return () => ipcRenderer.off('app:autosave-changed', listener)
-  },
+  onAutoSaveChanged: (handler: (enabled: boolean) => void): (() => void) =>
+    subscribe('app:autosave-changed', handler),
 
   getFileFilter: (): Promise<FileKind[] | null> => ipcRenderer.invoke('workspace:get-filter'),
 
@@ -102,17 +107,10 @@ const api: RendererApi = {
 
   getRecentFiles: (): Promise<string[]> => ipcRenderer.invoke('file:recent'),
 
-  onOpenRecent(handler: (filePath: string) => void): () => void {
-    const listener = (_event: IpcRendererEvent, filePath: string): void => handler(filePath)
-    ipcRenderer.on('menu:open-recent', listener)
-    return () => ipcRenderer.off('menu:open-recent', listener)
-  },
+  onOpenRecent: (handler: (filePath: string) => void): (() => void) =>
+    subscribe('menu:open-recent', handler),
 
-  onSaveRequest(handler: () => void): () => void {
-    const listener = (_event: IpcRendererEvent): void => handler()
-    ipcRenderer.on('app:save-request', listener)
-    return () => ipcRenderer.off('app:save-request', listener)
-  },
+  onSaveRequest: (handler: () => void): (() => void) => subscribe('app:save-request', handler),
 
   replySaveResult: (saved: boolean): void => {
     ipcRenderer.send('app:save-result', saved)
@@ -122,11 +120,8 @@ const api: RendererApi = {
     ipcRenderer.send('file:watch', filePath)
   },
 
-  onExternalChange(handler: (filePath: string) => void): () => void {
-    const listener = (_event: IpcRendererEvent, filePath: string): void => handler(filePath)
-    ipcRenderer.on('file:external-change', listener)
-    return () => ipcRenderer.off('file:external-change', listener)
-  }
+  onExternalChange: (handler: (filePath: string) => void): (() => void) =>
+    subscribe('file:external-change', handler)
 }
 
 contextBridge.exposeInMainWorld('api', api)

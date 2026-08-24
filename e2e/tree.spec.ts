@@ -3,18 +3,22 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { launchApp, makeWorkspace, type AppHarness, type PageHooks } from './helpers'
 
-let harness: AppHarness
+// 允许为空:launchApp 失败时不能让 afterEach 拿着上一轮的陈旧 harness 再 dispose 一次,
+// 那样会抛 "Cannot read properties of undefined",把真正的失败原因盖掉。
+let harness: AppHarness | undefined
 
 test.beforeEach(async () => {
   harness = await launchApp()
 })
 
 test.afterEach(async () => {
-  await harness.dispose()
+  const current = harness
+  harness = undefined
+  if (current) await current.dispose()
 })
 
 test('文件树加载工作区,右键新建文件落盘并打开', async () => {
-  const { win } = harness
+  const { win } = harness!
   const dir = makeWorkspace({ 'notes.md': '已有内容\n' })
 
   await win.evaluate((d: string) => (window as unknown as PageHooks).__tree.setRoot(d), dir)

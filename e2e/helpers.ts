@@ -63,10 +63,11 @@ function killApp(app: ElectronApplication): Promise<void> {
  */
 export async function launchApp(): Promise<AppHarness> {
   const userData = mkdtempSync(join(tmpdir(), 'mdedit-e2e-'))
-  const app = await electron.launch({
-    args: [MAIN, `--user-data-dir=${userData}`, '--enable-test-hooks'],
-    cwd: root
-  })
+  const args = [MAIN, `--user-data-dir=${userData}`, '--enable-test-hooks']
+  // CI 的 Linux 容器未配置 SUID sandbox helper,不关掉沙箱 Electron 会直接 fatal 退出。
+  // 仅测试环境使用,不影响正式产物的安全设置。
+  if (process.platform === 'linux') args.push('--no-sandbox')
+  const app = await electron.launch({ args, cwd: root })
   const win = await app.firstWindow()
   // bootstrap 在全部初始化完成后才挂载钩子,钩子出现即代表应用就绪
   await win.waitForFunction(

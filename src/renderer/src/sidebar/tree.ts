@@ -1,4 +1,5 @@
 import { type FileEntry, type FileKind, isEditableKind } from '@shared/ipc'
+import { baseName } from '../utils/path'
 
 interface TreeNode {
   entry: FileEntry
@@ -15,12 +16,6 @@ export interface FileTreeCallbacks {
   /** 右键。entry 为 null 表示点在树的空白处 */
   onContextMenu: (entry: FileEntry | null, point: { x: number; y: number }) => void
   onError: (message: string) => void
-}
-
-/** 渲染进程没有 path 模块,按分隔符取末段即可 */
-function baseName(fullPath: string): string {
-  const parts = fullPath.split(/[\\/]/).filter(Boolean)
-  return parts[parts.length - 1] ?? fullPath
 }
 
 const ICON_TEXT: Record<FileKind, string> = {

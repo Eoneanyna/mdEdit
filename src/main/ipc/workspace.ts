@@ -1,8 +1,9 @@
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { ipcMain } from 'electron'
 import { type FileEntry, type FileKind, kindOf } from '@shared/ipc'
 import * as store from '../store'
+import { pickOnePath } from './dialogs'
 import { guard } from './guard'
 
 /**
@@ -47,13 +48,8 @@ async function readDir(dirPath: string): Promise<FileEntry[]> {
 
 export function registerWorkspaceIpc(): void {
   ipcMain.handle('workspace:choose-folder', async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
-    const result = window
-      ? await dialog.showOpenDialog(window, { properties: ['openDirectory'] })
-      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
-    if (result.canceled || result.filePaths.length === 0) return null
-    const dirPath = result.filePaths[0]!
-    store.setLastWorkspace(dirPath)
+    const dirPath = await pickOnePath(event, { properties: ['openDirectory'] })
+    if (dirPath) store.setLastWorkspace(dirPath)
     return dirPath
   })
 
