@@ -42,9 +42,22 @@ export function delay(ms: number): Promise<void> {
  * 强杀应用进程。优雅 close() 会被未保存拦截卡住,清理阶段直接杀进程。
  * Windows 上 Electron 派生 GPU/renderer 等子进程,kill() 只杀主进程,
  * 导致 close 事件永不触发,故用 taskkill /t 杀整棵进程树。
+ *
+ * 必须容忍「应用已经不在了」:用例若主动关掉最后一个窗口,应用会自行退出,
+ * 此时 Playwright 的进程句柄失效 —— Windows 上仍返回对象,Linux 上返回
+ * undefined,直接取 .pid 会抛错并让本已通过的用例判失败。清理不该如此脆弱。
  */
-function killApp(app: ElectronApplication): Promise<void> {
-  const pid = app.process().pid
+async function killApp(app: ElectronApplication): Promise<void> {
+  let proc: ReturnType<ElectronApplication['process']> | undefined
+  try {
+    proc = app.process()
+  } catch {
+    // 句柄已失效,视作已退出
+  }
+
+  const pid = proc?.pid
+  if (pid === undefined) return
+
   if (process.platform === 'win32') {
     try {
       execFileSync('taskkill', ['/f', '/t', '/pid', String(pid)], { stdio: 'ignore' })
@@ -52,9 +65,13 @@ function killApp(app: ElectronApplication): Promise<void> {
       // 进程可能已退出
     }
   } else {
-    app.process().kill()
+    try {
+      proc?.kill()
+    } catch {
+      // 同上
+    }
   }
-  return delay(300)
+  await delay(300)
 }
 
 /**
