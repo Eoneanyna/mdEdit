@@ -16,8 +16,7 @@ const WIDE_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0xfe30, 0xfe6f], // CJK 兼容形式
   [0xff00, 0xff60], // 全角 ASCII
   [0xffe0, 0xffe6], // 全角货币等符号
-  [0x1f300, 0x1f64f], // 常用 emoji
-  [0x1f900, 0x1f9ff],
+  [0x1f300, 0x1f9ff], // 常用 emoji(1F650–1F8FF 段如 🚀 等同样按 2 列)
   [0x20000, 0x2fffd], // CJK 扩展 B 及以后
   [0x30000, 0x3fffd]
 ]
