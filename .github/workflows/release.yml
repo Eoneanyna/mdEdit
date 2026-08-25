@@ -1,0 +1,93 @@
+name: release
+
+# 推送 v 开头的 tag 时构建三平台安装包并挂到 Release。
+# 也允许手动触发,此时只构建、不发布,便于验证打包链路。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      # 某个平台失败时,其余平台的包仍然产出,不至于全军覆没
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: build:win
+            artifacts: release/*.exe
+          - os: macos-latest
+            script: build:mac
+            artifacts: release/*.dmg
+          - os: ubuntu-latest
+            script: build:linux
+            artifacts: |
+              release/*.AppImage
+              release/*.deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # 防止 tag 与 package.json 版本不一致导致发出错号的包
+      - name: Check version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag 版本 ($TAG) 与 package.json ($PKG) 不一致"
+            exit 1
+          fi
+          echo "版本一致: $PKG"
+
+      - name: Build installer
+        # --publish never:发布交给下面的 release job,避免 electron-builder
+        # 在 CI 中自行上传而与之冲突
+        run: npm run ${{ matrix.script }} -- --publish never
+        env:
+          # 未配置签名证书。不关掉自动查找的话,macOS 上会因找不到签名身份而失败
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: publish release
+    needs: build
+    # 手动触发时只验证构建,不创建 Release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: installer-*
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          # 先建草稿,内容确认无误后再手动点发布
+          draft: true
+          generate_release_notes: true
