@@ -49,6 +49,9 @@
   "dependencies": {
     "@milkdown/crepe": "^7.22.1",
     "@milkdown/kit": "^7.22.1",
-    "chokidar": "^5.0.0"
+    "chokidar": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5"
   }
 }

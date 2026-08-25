@@ -55,6 +55,19 @@ export function buildAppMenu(): void {
           click: () => emit('menu:file-save-as')
         },
         {
+          label: '导出',
+          submenu: [
+            {
+              label: '导出为纯文本…',
+              click: () => emit('menu:export-text')
+            },
+            {
+              label: '转换为 Markdown…',
+              click: () => emit('menu:export-markdown')
+            }
+          ]
+        },
+        {
           label: '自动保存',
           type: 'checkbox',
           checked: store.getAutoSave(),

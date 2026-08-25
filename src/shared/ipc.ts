@@ -11,6 +11,8 @@ export type MenuChannel =
   | 'menu:folder-open'
   | 'menu:file-save'
   | 'menu:file-save-as'
+  | 'menu:export-text'
+  | 'menu:export-markdown'
   | 'menu:find'
   | 'menu:toggle-outline'
 

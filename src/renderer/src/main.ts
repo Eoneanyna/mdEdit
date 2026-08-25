@@ -6,6 +6,8 @@ import {
   KIND_SHORT,
   type MenuChannel
 } from '@shared/ipc'
+import { markdownToText } from './convert/md-to-text'
+import { textToMarkdown } from './convert/text-to-md'
 import { createEditor } from './editor/editor'
 import { SAMPLE_DOC, SAMPLE_DOC_NAME } from './editor/sample'
 import { Outline } from './outline/outline'
@@ -349,6 +351,33 @@ async function bootstrap(): Promise<void> {
     return true
   }
 
+  /**
+   * 导出为另一种格式。与「另存为」不同:导出不接管当前文档,
+   * 写完后仍在编辑原文件,doc 的路径与脏标记都不受影响。
+   */
+  async function exportAs(target: 'text' | 'markdown'): Promise<void> {
+    const source = editor.getMarkdown()
+    const content = target === 'text' ? markdownToText(source) : textToMarkdown(source)
+    if (content.trim() === '') {
+      notify('文档为空,没有可导出的内容')
+      return
+    }
+    // 换扩展名而不是往后追加,免得出现 讲义.md.txt
+    const stem = doc.name.replace(/\.[^.\/]+$/, '')
+    const suffix = target === 'text' ? '.txt' : '.md'
+    const savePath = await window.api.chooseSavePath(stem + suffix)
+    if (!savePath) return
+
+    const result = await window.api.writeFile(savePath, content)
+    if (!result.ok) {
+      notify(`导出失败:${result.error}`)
+      return
+    }
+    notify(`已导出 ${baseName(savePath)}`)
+    // 导出目标可能落在工作区内,刷新让它出现在树上
+    if (tree.rootPath && savePath.startsWith(tree.rootPath)) await tree.refresh()
+  }
+
   // ---- 自动保存 ----
   let autoSaveEnabled = await window.api.getAutoSave()
   let autoSaveTimer: number | undefined
@@ -398,6 +427,8 @@ async function bootstrap(): Promise<void> {
     'menu:folder-open': () => void openFolder(),
     'menu:file-save': () => void save(false),
     'menu:file-save-as': () => void save(true),
+    'menu:export-text': () => void exportAs('text'),
+    'menu:export-markdown': () => void exportAs('markdown'),
     'menu:toggle-outline': () => setTab(activeTab === 'outline' ? 'files' : 'outline'),
     'menu:find': () => searchBar.open()
   }
