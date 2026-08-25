@@ -1,6 +1,6 @@
 {
   "name": "mdedit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "本地优先的所见即所得 Markdown 编辑器",
   "main": "./out/main/index.js",
   "author": "cxy <adc.rabbit@foxmail.com>",
