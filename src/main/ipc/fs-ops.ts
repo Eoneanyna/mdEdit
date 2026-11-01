@@ -72,4 +72,11 @@ export function registerFsOpsIpc(): void {
       return null
     })
   )
+
+  ipcMain.handle('fs:open-local', (_event, filePath: string) =>
+    guard(async () => {
+      await shell.openPath(filePath)
+      return null
+    })
+  )
 }

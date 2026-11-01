@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import {
+  type AiConfig,
+  type AiQueryRequest,
+  type AiQueryResponse,
   type ExternalApp,
   type FileEntry,
   type FileKind,
@@ -12,9 +15,9 @@ import {
 } from '@shared/ipc'
 
 /**
- * 订阅主进程的推送,返回取消订阅的函数。
+ * 订阅主进程的推?返回取消订阅的函数?
  * 各订阅接口的差异只在通道名与载荷类型,故统一由此生成,
- * 新增一路推送只需加一行,不必再抄一遍 on/off 的样板。
+ * 新增一路推送只需加一?不必再抄一?on/off 的样板?
  */
 function subscribe<A extends unknown[]>(
   channel: string,
@@ -28,7 +31,7 @@ function subscribe<A extends unknown[]>(
 const api: RendererApi = {
   platform: process.platform as Platform,
 
-  // 主进程通过 additionalArguments 透传,未开启时渲染层不会挂载任何内部对象
+  // 主进程通过 additionalArguments 透传,未开启时渲染层不会挂载任何内部对?
   testHooks: process.argv.includes(TEST_HOOKS_FLAG),
 
   versions: {
@@ -121,7 +124,15 @@ const api: RendererApi = {
   },
 
   onExternalChange: (handler: (filePath: string) => void): (() => void) =>
-    subscribe('file:external-change', handler)
+    subscribe('file:external-change', handler),
+
+  getAiConfig: (): Promise<AiConfig> => ipcRenderer.invoke('ai:get-config'),
+  setAiConfig: (config: AiConfig): Promise<void> => ipcRenderer.invoke('ai:set-config', config),
+  aiQuery: (req: AiQueryRequest): Promise<Result<AiQueryResponse>> => ipcRenderer.invoke('ai:query', req),
+  getWorkspacePath: (): Promise<string | null> => ipcRenderer.invoke('workspace:get-last'),
+  openLocalFile: (filePath: string): Promise<Result<null>> => ipcRenderer.invoke('fs:open-local', filePath),
+  openExternal: (url: string): Promise<Result<null>> => ipcRenderer.invoke('external:open-url', url)
 }
 
 contextBridge.exposeInMainWorld('api', api)
+

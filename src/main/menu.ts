@@ -110,6 +110,12 @@ export function buildAppMenu(): void {
       ]
     },
     {
+      label: 'AI',
+      submenu: [
+        { label: 'AI 助手', accelerator: 'CmdOrCtrl+Shift+A', click: () => emit('menu:ai-toggle') }
+      ]
+    },
+    {
       label: '帮助',
       submenu: [
         {

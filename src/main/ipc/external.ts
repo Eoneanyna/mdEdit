@@ -41,6 +41,13 @@ function launch(appPath: string, filePath: string): void {
 }
 
 export function registerExternalIpc(): void {
+  ipcMain.handle('external:open-url', (_event, url: string) =>
+    guard(async () => {
+      await shell.openExternal(url)
+      return null
+    })
+  )
+
   ipcMain.handle('external:open-default', (_event, filePath: string) =>
     guard(async () => {
       // openPath 返回空串表示成功,非空即为错误描述

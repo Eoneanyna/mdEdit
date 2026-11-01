@@ -15,6 +15,7 @@ export type MenuChannel =
   | 'menu:export-markdown'
   | 'menu:find'
   | 'menu:toggle-outline'
+  | 'menu:ai-toggle'
 
 /** 目标平台,仅覆盖本项目支持的三个系统 */
 export type Platform = 'win32' | 'darwin' | 'linux'
@@ -33,7 +34,7 @@ export interface RuntimeVersions {
  */
 export type FileKind = 'markdown' | 'text' | 'word' | 'excel'
 
-/** 扩展名到类别的映射,两端共用以保证判定一致 */
+/** 扩展到类别的映射,两端共用以保证判定一致 */
 export const KIND_BY_EXT: Readonly<Record<string, FileKind>> = {
   '.md': 'markdown',
   '.markdown': 'markdown',
@@ -73,7 +74,7 @@ export function isEditableKind(kind: FileKind | null): boolean {
   return kind !== null && EDITABLE_KINDS.includes(kind)
 }
 
-/** 取文件类别,不受支持的扩展名返回 null */
+/** 取文件类别,不支持的扩展名返回 null */
 export function kindOf(fileName: string): FileKind | null {
   const dot = fileName.lastIndexOf('.')
   if (dot < 0) return null
@@ -194,8 +195,55 @@ export interface RendererApi {
   onSaveRequest: (handler: () => void) => () => void
   replySaveResult: (saved: boolean) => void
 
-  /** 监听指定文件的外部改动,传 null 停止监听 */
+  /** 监听指定文件的外部改动;传 null 停止监听 */
   watchFile: (filePath: string | null) => void
   /** 当前文件被其他程序改动 */
   onExternalChange: (handler: (filePath: string) => void) => () => void
+
+  /** AI 助手:读取持久化的模型配置 */
+  getAiConfig: () => Promise<AiConfig>
+  /** AI 助手:保存模型配置 */
+  setAiConfig: (config: AiConfig) => Promise<void>
+  /** AI 助手:发起一次检索增强问答 */
+  aiQuery: (req: AiQueryRequest) => Promise<Result<AiQueryResponse>>
+  /** 当前工作区路径,供 AI 面板展示 */
+  getWorkspacePath: () => Promise<string | null>
+  /** 点击来源时打开本地文件 */
+  openLocalFile: (filePath: string) => Promise<Result<null>>
+  /** 点击来源时在浏览器打开网页 */
+  openExternal: (url: string) => Promise<Result<null>>
+}
+
+/** AI 助手:一条检索到的资料 */
+export interface AiSource {
+  id: number
+  type: 'local' | 'web'
+  title: string
+  path?: string
+  url?: string
+  snippet: string
+}
+
+export interface AiQueryRequest {
+  question: string
+  provider: 'openrouter' | 'siliconcloud' | 'ollama' | 'custom'
+  model: string
+  apiKey?: string
+  baseUrl?: string
+  useLocal: boolean
+  useWeb: boolean
+}
+
+export interface AiQueryResponse {
+  answer: string
+  sources: AiSource[]
+}
+
+export interface AiConfig {
+  provider: 'openrouter' | 'siliconcloud' | 'ollama' | 'custom'
+  model: string
+  apiKey: string
+  baseUrl: string
+  useLocal: boolean
+  useWeb: boolean
 }

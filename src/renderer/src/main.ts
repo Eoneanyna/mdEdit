@@ -1,4 +1,4 @@
-import {
+﻿import {
   ALL_KINDS,
   type FileEntry,
   type FileKind,
@@ -19,6 +19,7 @@ import { countText } from './state/word-count'
 import { DIVIDER, type PopupItem, showPopup } from './ui/popup'
 import { showPrompt } from './ui/prompt'
 import { baseName, dirName } from './utils/path'
+import { createAiPanel } from './ai/ai-panel'
 import './styles/main.css'
 
 const root = document.querySelector<HTMLDivElement>('#app')
@@ -54,6 +55,13 @@ root.innerHTML = `
         <span class="status__hint" id="status-hint"></span>
       </footer>
     </div>
+    <aside class="ai-drawer" id="ai-drawer">
+      <div class="ai-drawer__header">
+        <span class="ai-drawer__title">AI 助手</span>
+        <button class="ai-drawer__close" id="ai-drawer-close" type="button" title="关闭">×</button>
+      </div>
+      <div class="ai-drawer__body" id="ai-panel"></div>
+    </aside>
   </div>
 `
 
@@ -407,6 +415,15 @@ async function bootstrap(): Promise<void> {
     notify(enabled ? '已开启自动保存' : '已关闭自动保存')
   })
 
+  const aiDrawer = document.querySelector<HTMLElement>('#ai-drawer')
+  const aiDrawerClose = document.querySelector<HTMLButtonElement>('#ai-drawer-close')
+  let aiDrawerOpen = false
+  function toggleAiDrawer(force?: boolean): void {
+    aiDrawerOpen = force === undefined ? !aiDrawerOpen : force
+    if (aiDrawer) aiDrawer.classList.toggle('is-open', aiDrawerOpen)
+  }
+  aiDrawerClose?.addEventListener('click', () => toggleAiDrawer(false))
+
   const handlers: Partial<Record<MenuChannel, () => void>> = {
     'menu:file-new': () => {
       if (!confirmDiscard()) return
@@ -430,6 +447,7 @@ async function bootstrap(): Promise<void> {
     'menu:export-text': () => void exportAs('text'),
     'menu:export-markdown': () => void exportAs('markdown'),
     'menu:toggle-outline': () => setTab(activeTab === 'outline' ? 'files' : 'outline'),
+    'menu:ai-toggle': () => toggleAiDrawer(),
     'menu:find': () => searchBar.open()
   }
 
@@ -511,6 +529,11 @@ async function bootstrap(): Promise<void> {
 
   // 应用运行期间用户又双击了文件
   window.api.onOpenFile((filePath) => void openWithWorkspace(filePath))
+
+  // AI 面板
+  createAiPanel(el('#ai-panel'), {
+    getWorkspace: () => (window.api as any).getWorkspacePath ? (window.api as any).getWorkspacePath() : Promise.resolve(tree.rootPath)
+  })
 
   // 恢复上次的工作区
   const lastWorkspace = await window.api.getLastWorkspace()

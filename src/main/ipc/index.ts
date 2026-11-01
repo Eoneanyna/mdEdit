@@ -7,6 +7,7 @@ import { watchFile } from './watcher'
 import { registerWorkspaceIpc } from './workspace'
 import { takePendingFile } from '../pending-file'
 import * as store from '../store'
+import { registerAiIpc } from './ai'
 
 const APP_NAME = 'mdEdit'
 
@@ -37,4 +38,6 @@ export function registerIpc(): void {
   registerExternalIpc()
   registerFsOpsIpc()
   registerWindowIpc()
+  registerAiIpc()
 }
+

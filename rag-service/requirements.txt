@@ -1,0 +1,7 @@
+# 必需(轻量,纯 CPU 即可跑通)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+numpy>=1.26
+
+# 可选:安装后自动启用真·语义向量检索(推荐,首次运行会下载约 100MB 模型)
+# sentence-transformers>=3.0

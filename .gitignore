@@ -11,6 +11,23 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Python RAG 服务
+rag-service/.venv/
+rag-service/__pycache__/
+rag-service/app/__pycache__/
+rag-service/evals/results-*.json
+rag-service/smoke_test.py
+
+# 一次性修复/补丁脚本与备份文件,不进版本库
+*.bak
+*.orig
+fix.js
+fix3.js
+fix_ai.js
+fix_title.js
+add_menu.js
+patch_*.py
+
 # build/ 下只收版构建实际使用的图标与其源图,其余为中间素材
 build/*.png
 !build/icon.png
