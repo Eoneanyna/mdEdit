@@ -104,10 +104,16 @@ class SearchIndex:
         hits: list[SearchHit] = []
         for i in order:
             s = float(fused[i])
-            if s <= 0.0:
+            # 余弦映射到 [0,1] 后，完全不相似也有 0.5；不能仅凭融合分数判定相关。
+            lexical = float(bm25_scores[i]) > 0
+            semantic = self.embedder is not None and getattr(self.embedder, 'name', '') != 'hash' and float(vec_norm[i]) >= 0.675
+            relevant = lexical if method == 'bm25' else semantic or (lexical and method != 'vector')
+            if method == 'vector' and getattr(self.embedder, 'name', '') == 'hash':
+                relevant = lexical
+            if s <= 0.0 or not relevant:
                 continue
             c = self.chunks[int(i)]
-            hits.append(SearchHit(chunk=c, score=round(s, 4), snippet=make_snippet(c.text, query)))
+            hits.append(SearchHit(chunk=c, score=round(s, 4), snippet=make_snippet(c.text, query, width=1000)))
         return hits
 
 

@@ -63,7 +63,7 @@ class SentenceTransformerEmbedder:
 
 def create_embedder(prefer_semantic: bool = True):
     """默认尝试语义模型,失败则回退哈希向量并打印原因。"""
-    if prefer_semantic:
+    if prefer_semantic and os.environ.get('MDEDIT_EMBEDDER') != 'hash':
         try:
             emb = SentenceTransformerEmbedder()
             print(f"[embedding] 使用语义模型 {MODEL_NAME} (dim={emb.dim})")

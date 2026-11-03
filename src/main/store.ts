@@ -1,9 +1,11 @@
 ﻿import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import type { ExternalApp, FileKind } from '@shared/ipc'
 
 interface Settings {
+  aiConfig?: Omit<AiConfigStore, 'apiKey'> & { apiKey?: string; encryptedKey?: string }
+
   /** 涓婃鎵撳紑鐨勫伐浣滃尯,鍚姩鏃剁敤浜庢仮澶嶄晶杈规爮 */
   lastWorkspace: string | null
   /** 鏈€杩戞墦寮€杩囩殑鏂囦欢,鏈€鏂扮殑鍦ㄥ墠 */
@@ -121,7 +123,7 @@ export interface AiConfigStore {
 
 const AI_DEFAULT: AiConfigStore = {
   provider: 'openrouter',
-  model: 'deepseek/deepseek-chat-v3-0324:free',
+  model: 'openrouter/free',
   apiKey: '',
   baseUrl: 'https://openrouter.ai/api/v1',
   useLocal: true,
@@ -129,13 +131,26 @@ const AI_DEFAULT: AiConfigStore = {
 }
 
 export function getAiConfig(): AiConfigStore {
-  const current: any = read()
-  return { ...AI_DEFAULT, ...(current.aiConfig || {}) }
+  const saved = read().aiConfig
+  const { encryptedKey, apiKey: legacyKey, ...config } = saved || { ...AI_DEFAULT }
+  let apiKey = legacyKey || ''
+  if (encryptedKey && safeStorage.isEncryptionAvailable()) {
+    try { apiKey = safeStorage.decryptString(Buffer.from(encryptedKey, 'base64')) } catch { apiKey = '' }
+  }
+  // 迁移旧版已下线的默认模型，但保留用户自行配置的模型。
+  const model = config.provider === 'openrouter' && config.model === 'deepseek/deepseek-chat-v3-0324:free' ? AI_DEFAULT.model : config.model
+  return { ...AI_DEFAULT, ...config, ...(model ? { model } : {}), apiKey }
 }
 
 export function setAiConfig(config: AiConfigStore): void {
-  const current: any = read()
-  write({ ...current, aiConfig: config } as any)
+  const { apiKey, ...rest } = config
+  const secure = safeStorage.isEncryptionAvailable() &&
+    !(process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text')
+  if (apiKey && !secure) throw new Error('系统安全存储不可用，API Key 仍可在本次会话使用')
+  const next: Settings = { ...read(), aiConfig: {
+    ...rest, ...(apiKey ? { encryptedKey: safeStorage.encryptString(apiKey).toString('base64') } : {})
+  } }
+  // AI 配置保存需向界面报告真实错误，不能沿用静默失败的通用设置写入。
+  writeFileSync(settingsPath(), JSON.stringify(next, null, 2), 'utf-8')
+  cache = next
 }
-
-

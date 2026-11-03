@@ -326,8 +326,10 @@ async function bootstrap(): Promise<void> {
   /** 切换工作区。树与标题必须一起更新,统一收在这里避免调用方各写一遍 */
   async function setWorkspace(dirPath: string): Promise<void> {
     await tree.setRoot(dirPath)
+    await window.api.setLastWorkspace(dirPath)
     workspaceEl.textContent = baseName(dirPath)
     workspaceEl.title = dirPath
+    aiPanel.workspaceChanged(dirPath)
   }
 
   async function openFolder(): Promise<void> {
@@ -531,8 +533,8 @@ async function bootstrap(): Promise<void> {
   window.api.onOpenFile((filePath) => void openWithWorkspace(filePath))
 
   // AI 面板
-  createAiPanel(el('#ai-panel'), {
-    getWorkspace: () => (window.api as any).getWorkspacePath ? (window.api as any).getWorkspacePath() : Promise.resolve(tree.rootPath)
+  const aiPanel = createAiPanel(el('#ai-panel'), {
+    getWorkspace: () => window.api.getWorkspacePath()
   })
 
   // 恢复上次的工作区

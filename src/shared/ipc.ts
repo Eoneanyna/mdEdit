@@ -206,6 +206,7 @@ export interface RendererApi {
   setAiConfig: (config: AiConfig) => Promise<void>
   /** AI 助手:发起一次检索增强问答 */
   aiQuery: (req: AiQueryRequest) => Promise<Result<AiQueryResponse>>
+  cancelAiQuery: () => Promise<void>
   /** 当前工作区路径,供 AI 面板展示 */
   getWorkspacePath: () => Promise<string | null>
   /** 点击来源时打开本地文件 */
@@ -232,11 +233,22 @@ export interface AiQueryRequest {
   baseUrl?: string
   useLocal: boolean
   useWeb: boolean
+  history?: AiTurn[]
+}
+
+/** 只有成功完成的轮次进入后续上下文。 */
+export interface AiTurn {
+  question: string
+  answer: string
+  sources: AiSource[]
 }
 
 export interface AiQueryResponse {
   answer: string
   sources: AiSource[]
+  retrievalQuery: string
+  retrievalMode: 'rag' | 'keyword' | 'none'
+  notices: string[]
 }
 
 export interface AiConfig {

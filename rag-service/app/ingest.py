@@ -1,10 +1,44 @@
 """文档摄取:扫描工作区 .md,按标题切块,长节做滑窗。"""
 
 import re
+import os
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
 SKIP_DIRS = {".git", "node_modules", "dist", "out", "release", ".venv", "__pycache__"}
+EXTENSIONS = {".md", ".markdown", ".mdown", ".mkd", ".txt"}
+
+
+def document_paths(workspace: str) -> list[Path]:
+    root = Path(workspace).resolve()
+    paths = []
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith('.')
+                   and not (Path(directory) / d).is_symlink()]
+        for name in files:
+            path = Path(directory) / name
+            if name.startswith('.') or path.suffix.lower() not in EXTENSIONS or path.is_symlink():
+                continue
+            try:
+                if path.stat().st_size <= 2_000_000:
+                    paths.append(path)
+            except OSError:
+                continue
+    return sorted(paths)
+
+
+def workspace_fingerprint(workspace: str) -> str:
+    digest = hashlib.sha256()
+    root = Path(workspace).resolve()
+    for path in document_paths(workspace):
+        try:
+            digest.update(path.relative_to(root).as_posix().encode('utf-8'))
+            digest.update(b'\x00')
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
+        except OSError:
+            continue
+    return digest.hexdigest()
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.MULTILINE)
 
@@ -86,11 +120,11 @@ def file_title_of(path: Path) -> str:
 
 
 def ingest(workspace: str) -> list[Chunk]:
-    root = Path(workspace)
+    root = Path(workspace).resolve()
     chunks: list[Chunk] = []
     if not root.is_dir():
         return chunks
-    for path in sorted(root.rglob("*.md")):
+    for path in document_paths(workspace):
         rel_parts = path.relative_to(root).parts
         if any(part in SKIP_DIRS for part in rel_parts):
             continue

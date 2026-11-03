@@ -129,8 +129,9 @@ const api: RendererApi = {
   getAiConfig: (): Promise<AiConfig> => ipcRenderer.invoke('ai:get-config'),
   setAiConfig: (config: AiConfig): Promise<void> => ipcRenderer.invoke('ai:set-config', config),
   aiQuery: (req: AiQueryRequest): Promise<Result<AiQueryResponse>> => ipcRenderer.invoke('ai:query', req),
+  cancelAiQuery: (): Promise<void> => ipcRenderer.invoke('ai:cancel'),
   getWorkspacePath: (): Promise<string | null> => ipcRenderer.invoke('workspace:get-last'),
-  openLocalFile: (filePath: string): Promise<Result<null>> => ipcRenderer.invoke('fs:open-local', filePath),
+  openLocalFile: (filePath: string): Promise<Result<null>> => ipcRenderer.invoke('ai:open-local', filePath),
   openExternal: (url: string): Promise<Result<null>> => ipcRenderer.invoke('external:open-url', url)
 }
 

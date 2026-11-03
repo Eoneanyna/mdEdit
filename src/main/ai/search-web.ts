@@ -4,15 +4,17 @@
   description: string
 }
 
-export async function searchWeb(query: string, limit = 4): Promise<WebSearchResult[]> {
+export async function searchWeb(query: string, limit = 4, signal?: AbortSignal): Promise<WebSearchResult[]> {
   try {
     // 使用 DuckDuckGo HTML 搜索（无需 API key）
     const url = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query)
     const res = await fetch(url, {
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(12_000)]) : AbortSignal.timeout(12_000),
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       }
     })
+    if (!res.ok) return []
     const html = await res.text()
     const results: WebSearchResult[] = []
     // 简单正则提取（够用）
@@ -46,6 +48,7 @@ export async function searchWeb(query: string, limit = 4): Promise<WebSearchResu
     }
     return results
   } catch {
+    signal?.throwIfAborted()
     return []
   }
 }

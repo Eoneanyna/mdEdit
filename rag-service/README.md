@@ -18,17 +18,23 @@ set HF_ENDPOINT=https://hf-mirror.com
 .venv/Scripts/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
 ```
 
-服务启动后,mdEdit 打开工作区提问时自动调用它;检索失败时编辑器自动回退内置关键词搜索,功能不受影响。
+服务启动后，mdEdit 提问时自动调用它。每次查询会检查文档内容指纹，新增、修改、改名和删除会触发全量重建；未变化时复用内存索引。更新服务代码后请重启原有进程，旧版服务会被客户端识别并降级到内置关键词检索。
+
+支持 `.md`、`.markdown`、`.mdown`、`.mkd`、`.txt`，跳过隐藏目录、常见构建目录、符号链接和超过 2 MB 的文件。首次语义模型加载可能超过客户端 30 秒等待时间，本轮会降级，后续可重试。
 
 ## 接口
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | /health | 存活检查,返回 embedder/索引状态 |
-| POST | /index | `{"workspace": "D:/docs"}` 建索引(同工作区幂等复用) |
+| POST | /index | `{"workspace": "D:/docs", "force": false}` 检查内容变化后建索引，返回 `protocol: 2`；`force` 可强制重建 |
 | POST | /search | `{"query": "...", "top_k": 6, "method": "hybrid"}` 返回 `[{path, rel, title, snippet, score}]` |
 
 `method` 可选 `hybrid`(默认)/ `bm25` / `vector`,用于评测对比。
+
+客户端的 `/search` 请求携带 `workspace`，服务端在同一把锁内核对工作区、刷新索引并查询，防止不同窗口或评测切换工作区后串用旧索引。未传工作区时搜索当前索引，用于兼容评测脚本。
+
+默认服务地址为 `http://127.0.0.1:8765`，Electron 主进程可通过环境变量 `MDEDIT_RAG_URL` 指定其他地址。设置 `MDEDIT_EMBEDDER=hash` 可在测试时跳过语义模型加载。仅监听本机回环地址，不要暴露到公网。
 
 ## 嵌入器策略
 

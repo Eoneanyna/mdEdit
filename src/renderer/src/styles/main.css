@@ -617,7 +617,7 @@ body {
   flex-shrink: 0;
 }
 
-\n/* ---------- AI  ---------- */
+/* ---------- AI  ---------- */
 .sidebar__body--ai {
   display: flex;
   flex-direction: column;
@@ -812,7 +812,7 @@ body {
 }
 
 
-\n.ai-panel__config-header {
+.ai-panel__config-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -836,3 +836,14 @@ body {
   background: var(--bg-subtle);
 }
 
+
+.ai-panel__privacy, .ai-panel__status { font-size: 11px; line-height: 1.5; color: var(--fg-muted); padding: 6px 8px; white-space: normal; }
+.ai-panel__hint { padding: 4px 8px; flex-shrink: 0; }
+.ai-panel__config { max-height: 45%; overflow: auto; flex-shrink: 0; }
+.ai-drawer.is-open { width: min(430px, 48vw); flex-shrink: 0; }
+.ai-msg { max-width: 100%; }
+.ai-turn-sources { margin-top: 8px; white-space: normal; }
+.ai-turn-sources summary { cursor: pointer; color: var(--fg-muted); font-size: 11px; }
+.ai-turn-sources .ai-source-item { display: block; padding: 4px 0; border: 0; background: transparent; text-align: left; overflow-wrap: anywhere; }
+.ai-turn-sources .ai-source-item__snip { white-space: pre-wrap; max-height: 90px; overflow: auto; }
+.ai-btn:disabled { opacity: 0.55; cursor: default; }
