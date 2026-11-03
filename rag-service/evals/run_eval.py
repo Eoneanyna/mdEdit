@@ -11,6 +11,7 @@ import argparse
 import json
 import time
 import urllib.request
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -28,14 +29,15 @@ def post(base: str, path: str, payload: dict, timeout: int = 60) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def evaluate(base: str, questions: list[dict], mode: str, top_k: int) -> dict:
+def evaluate(base: str, questions: list[dict], mode: str, top_k: int, search_fn=None, workspace=None) -> dict:
     hits = 0
     reciprocal_ranks: list[float] = []
     top1_ok = 0
     misses: list[dict] = []
 
     for item in questions:
-        data = post(base, "/search", {"query": item["q"], "top_k": top_k, "method": mode})
+        data = search_fn(item['q'], mode, top_k) if search_fn else post(
+            base, "/search", {"query": item["q"], "top_k": top_k, "method": mode, "workspace": workspace})
         results = data.get("results", [])
         rels = [r["rel"] for r in results]
         rank = next(
@@ -64,24 +66,40 @@ def evaluate(base: str, questions: list[dict], mode: str, top_k: int) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--top-k", type=int, default=5)
+    ap.add_argument("--top-k", type=int)
     ap.add_argument("--base", default="http://127.0.0.1:8765")
+    ap.add_argument("--in-process", action="store_true", help="独立进程内评测，不切换正在使用的服务索引")
+    ap.add_argument("--embedder", choices=['auto', 'semantic', 'hash'], default='auto', help="进程内评测嵌入器；semantic 加载失败会直接报错")
     args = ap.parse_args()
 
     dataset = json.loads((ROOT / "evals" / "dataset.json").read_text("utf-8"))
     questions = dataset["questions"]
-    top_k = dataset["meta"].get("top_k", args.top_k)
+    top_k = args.top_k if args.top_k is not None else dataset["meta"].get("top_k", 5)
+    if top_k < 1:
+        ap.error('--top-k 必须大于零')
     corpus = str(ROOT / dataset["meta"]["corpus"])
 
-    health = json.loads(urllib.request.urlopen(args.base + "/health", timeout=120).read().decode("utf-8"))
-    print(f"服务 embedder={health['embedder']}")
-
-    idx = post(args.base, "/index", {"workspace": corpus})
-    print(f"索引: {idx}")
+    search_fn = None
+    if args.in_process:
+        sys.path.insert(0, str(ROOT))
+        from app.embedding import HashingEmbedder, SentenceTransformerEmbedder, create_embedder, MODEL_NAME
+        from app.index_store import SearchIndex
+        embedder = HashingEmbedder() if args.embedder == 'hash' else SentenceTransformerEmbedder() if args.embedder == 'semantic' else create_embedder()
+        index = SearchIndex()
+        index.build(corpus, embedder=embedder)
+        health = {'embedder': embedder.name, 'chunks': len(index.chunks), 'workspace': corpus,
+                  'model': MODEL_NAME if embedder.name == 'sentence-transformers' else 'hash', 'in_process': True}
+        def search_fn(query, mode, k):
+            return {'results': [{'rel': hit.chunk.rel} for hit in index.search(query, top_k=k, method=mode)]}
+    else:
+        idx = post(args.base, "/index", {"workspace": corpus})
+        print(f"索引: {idx}")
+        health = json.loads(urllib.request.urlopen(args.base + "/health", timeout=120).read().decode("utf-8"))
+    print(f"嵌入器={health['embedder']}, 块数={health.get('chunks')}")
 
     rows = []
     for mode in MODES:
-        r = evaluate(args.base, questions, mode, top_k)
+        r = evaluate(args.base, questions, mode, top_k, search_fn=search_fn, workspace=corpus)
         rows.append(r)
         print(f"[{mode:7s}] Recall@{top_k}={r['recall@k']:.3f}  MRR={r['mrr']:.3f}  P@1={r['p@1']:.3f}")
 

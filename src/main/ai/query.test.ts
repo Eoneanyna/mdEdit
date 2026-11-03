@@ -52,4 +52,16 @@ describe('retrieval augmented follow-ups', () => {
     const invalid = await queryAi({ ...req, history: [] }, '/docs')
     expect(invalid.notices.join('')).toContain('无效引用编号')
   })
+  it('emits scoped stages, sources and deltas in order', async () => {
+    vi.mocked(ragSearch).mockResolvedValue([{ path: '/docs/a.md', rel: 'a.md', snippet: '资料', score: 1 }])
+    vi.mocked(callOpenAICompat).mockImplementation(async (_req, _system, _prompt, _signal, onDelta) => {
+      onDelta?.('答案 [1]')
+      return '答案 [1]'
+    })
+    const events: import('@shared/ipc').AiQueryEvent[] = []
+    await queryAi({ ...req, requestId: 'test-stream', history: [] }, '/docs', undefined, event => events.push(event))
+    expect(events.map(e => e.type)).toEqual(['stage', 'sources', 'stage', 'delta'])
+    expect(events.every(e => e.requestId === 'test-stream')).toBe(true)
+    expect(events.at(-1)).toEqual({ requestId: 'test-stream', type: 'delta', text: '答案 [1]' })
+  })
 })

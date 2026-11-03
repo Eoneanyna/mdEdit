@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron'
 import { isAbsolute, relative, resolve } from 'node:path'
 import type { AiConfig, AiQueryRequest, Result } from '@shared/ipc'
 import { queryAi } from '../ai/query'
+import { getRagStatus } from '../ai/search-rag'
 import * as store from '../store'
 import { guard } from './guard'
 
@@ -15,13 +16,17 @@ export function registerAiIpc(): void {
     active.set(id, controller)
     event.sender.once('destroyed', destroyed)
     try {
-      return await guard(() => queryAi(req, store.getLastWorkspace(), controller.signal))
+      return await guard(() => queryAi(req, store.getLastWorkspace(), controller.signal,
+        req?.requestId ? update => {
+          if (!event.sender.isDestroyed()) event.sender.send('ai:event', update)
+        } : undefined))
     } finally {
       active.delete(id)
       event.sender.removeListener('destroyed', destroyed)
     }
   })
   ipcMain.handle('ai:cancel', (event) => { active.get(event.sender.id)?.abort() })
+  ipcMain.handle('ai:rag-status', () => getRagStatus())
   ipcMain.handle('ai:get-config', () => store.getAiConfig())
   ipcMain.handle('ai:set-config', (_event, config: AiConfig) => {
     store.setAiConfig(config)

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -57,6 +58,39 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(len(ingest(str(self.root))), 1)
         main.build_index(main.IndexRequest(workspace=str(self.root)))
         self.assertEqual(self.index.search("saturn-unknown-xyz"), [])
+
+    def test_health_is_available_while_embedding_is_blocked(self):
+        (self.root / '项目.md').write_text('青岚项目负责人', encoding='utf-8')
+        entered, release = threading.Event(), threading.Event()
+        class SlowEmbedder(HashingEmbedder):
+            def encode(self, texts):
+                entered.set()
+                if not release.wait(5):
+                    raise TimeoutError('test timed out')
+                return super().encode(texts)
+        main._embedder = SlowEmbedder()
+        errors = []
+        def build():
+            try:
+                main.build_index(main.IndexRequest(workspace=str(self.root)))
+            except Exception as error:
+                errors.append(error)
+        worker = threading.Thread(target=build)
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(3))
+            status = main.health()
+            self.assertTrue(status['building'])
+            self.assertEqual(status['phase'], 'embedding')
+            self.assertEqual(status['total'], 1)
+            self.assertEqual(status['completed'], 0)
+        finally:
+            release.set()
+            worker.join(timeout=5)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertFalse(main.health()['building'])
+        self.assertEqual(main.health()['completed'], 1)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,26 @@
 import type { LocalSearchResult } from './search-local'
+import type { RagStatus } from '@shared/ipc'
 
 const RAG_BASE_URL = process.env.MDEDIT_RAG_URL || 'http://127.0.0.1:8765'
+
+export async function getRagStatus(): Promise<RagStatus> {
+  const empty: RagStatus = { available: false, compatible: false, indexed: false, chunks: 0,
+    embedder: null, workspace: null, building: false, phase: 'offline', completed: 0, total: 0, error: null }
+  try {
+    const response = await fetch(RAG_BASE_URL + '/health', { signal: AbortSignal.timeout(2000) })
+    if (!response.ok) return { ...empty, error: '本地检索服务返回错误，将使用内置关键词检索' }
+    const data = await response.json() as Record<string, unknown>
+    if (data.ok !== true) return { ...empty, error: '本地检索服务响应无效' }
+    return { available: true, compatible: data.protocol === 2, indexed: data.indexed === true,
+      chunks: typeof data.chunks === 'number' ? data.chunks : 0,
+      embedder: typeof data.embedder === 'string' ? data.embedder : null,
+      workspace: typeof data.workspace === 'string' ? data.workspace : null,
+      building: data.building === true, phase: typeof data.phase === 'string' ? data.phase : 'idle',
+      completed: typeof data.completed === 'number' ? data.completed : 0,
+      total: typeof data.total === 'number' ? data.total : 0,
+      error: typeof data.error === 'string' ? data.error : null }
+  } catch { return { ...empty, error: '本地检索服务未连接，将使用内置关键词检索' } }
+}
 
 async function postJson<T>(path: string, body: unknown, timeoutMs: number, signal?: AbortSignal): Promise<T | null> {
   try {

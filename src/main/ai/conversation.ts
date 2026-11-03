@@ -19,6 +19,7 @@ export function boundedHistory(history: AiTurn[] = []): AiTurn[] {
 }
 
 export function validateRequest(req: AiQueryRequest): AiQueryRequest {
+  if (req?.requestId !== undefined && (typeof req.requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(req.requestId))) throw new Error('请求编号无效')
   if (!req || typeof req.question !== 'string' || !req.question.trim()) throw new Error('请输入问题')
   if (req.question.length > 4000) throw new Error('问题不能超过 4000 字符')
   if (!['openrouter', 'siliconcloud', 'ollama', 'custom'].includes(req.provider)) throw new Error('模型供应商无效')

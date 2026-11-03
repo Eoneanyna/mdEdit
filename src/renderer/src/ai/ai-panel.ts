@@ -1,5 +1,7 @@
 import type { AiConfig, AiQueryResponse, AiSource, AiTurn } from '@shared/ipc'
 import { loadSession, saveSession } from './session'
+import { renderAnswer } from './markdown'
+import { createRagStatus } from './rag-status'
 
 interface AiPanelDeps { getWorkspace: () => Promise<string | null> }
 const DEFAULTS: Record<AiConfig['provider'], { baseUrl: string; model: string }> = {
@@ -32,6 +34,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
         <div class="ai-panel__privacy">云端模型会接收问题、最近 6 轮问答及检索片段；未保存的编辑内容不参与检索。会话仅保存在本机，按工作区隔离。</div>
       </div>
       <div class="ai-panel__hint" id="ai-workspace-hint"></div>
+      <div id="ai-rag-status"></div>
       <div class="ai-panel__messages" id="ai-messages" role="log" aria-label="问答记录"></div>
       <div class="ai-panel__status" id="ai-status" role="status" aria-live="polite"></div>
       <div class="ai-panel__input">
@@ -61,6 +64,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
   let busy = false
   let generation = 0
   let initialized = false
+  const ragStatus = createRagStatus(el('ai-rag-status'), () => workspace)
+  window.addEventListener('pagehide', () => ragStatus.dispose(), { once: true })
 
   function config(): AiConfig {
     return { provider: provider.value as AiConfig['provider'], model: model.value.trim(), apiKey: apiKey.value.trim(),
@@ -69,7 +74,12 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
   function addMessage(role: 'user' | 'ai', text: string): HTMLElement {
     const div = document.createElement('div')
     div.className = 'ai-msg ai-msg--' + role
-    div.textContent = text
+    if (role === 'ai') {
+      const body = document.createElement('div')
+      body.className = 'ai-answer'
+      renderAnswer(body, text)
+      div.appendChild(body)
+    } else div.textContent = text
     messages.appendChild(div)
     messages.scrollTop = messages.scrollHeight
     return div
@@ -127,6 +137,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
     turns.forEach(renderTurn)
     el('ai-workspace-hint').textContent = workspace ? '工作区：' + workspace : '未打开工作区，可使用通用问答'
     status.textContent = ''
+    ragStatus.clearOutcome()
   }
   configToggle.addEventListener('click', () => {
     const open = configBody.style.display === 'none'
@@ -151,6 +162,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
     if (busy) return
     turns = []
     messages.replaceChildren()
+    ragStatus.clearOutcome()
     status.textContent = saveSession(workspace, turns) ? '已开始新对话' : '无法清除已保存的会话，请检查本地存储'
   })
   stopButton.addEventListener('click', () => {
@@ -167,6 +179,30 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
     const current = ++generation
     let requestWorkspace = workspace
     let userMessage: HTMLElement | undefined
+    let answerMessage: HTMLElement | undefined
+    let partial = ''
+    let sources: AiSource[] = []
+    let unsubscribe: (() => void) | undefined
+    let renderTimer: number | undefined
+    const requestId = crypto.randomUUID()
+    const paint = (): void => {
+      if (renderTimer !== undefined) window.clearTimeout(renderTimer)
+      renderTimer = undefined
+      if (!answerMessage) return
+      const follow = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80
+      renderAnswer(answerMessage.querySelector<HTMLElement>('.ai-answer')!, partial)
+      if (follow) messages.scrollTop = messages.scrollHeight
+    }
+    const markIncomplete = (label: string): void => {
+      if (!answerMessage) { userMessage?.remove(); return }
+      paint()
+      answerMessage.classList.add('ai-msg--incomplete')
+      const note = document.createElement('div')
+      note.className = 'ai-turn-note'
+      note.textContent = label + ' · 回答不完整，未加入后续上下文'
+      answerMessage.appendChild(note)
+      renderSources(answerMessage, sources)
+    }
     try {
       const nextWorkspace = await deps.getWorkspace()
       if (nextWorkspace !== workspace) {
@@ -180,10 +216,23 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       question.value = ''
       userMessage = addMessage('user', text)
       status.textContent = '正在检索资料并生成回答…'
-      const result = await window.api.aiQuery({ ...config(), question: text, history: turns.slice(-6) })
+      unsubscribe = window.api.onAiEvent(event => {
+        if (event.requestId !== requestId || current !== generation) return
+        if (event.type === 'stage') {
+          const labels = { rewriting: '正在理解追问…', local: '正在检索本地文档…', web: '正在搜索网页…', answering: '正在生成回答…' }
+          status.textContent = labels[event.stage]
+          if (event.stage === 'local') void ragStatus.refresh()
+        } else if (event.type === 'sources') sources = event.sources
+        else {
+          partial += event.text
+          if (!answerMessage) answerMessage = addMessage('ai', '')
+          if (renderTimer === undefined) renderTimer = window.setTimeout(paint, 50)
+        }
+      })
+      const result = await window.api.aiQuery({ ...config(), requestId, question: text, history: turns.slice(-6) })
       if (current !== generation) return
       if (!result.ok) {
-        userMessage.remove()
+        markIncomplete('生成失败')
         question.value = text
         status.textContent = result.error
         return
@@ -192,7 +241,10 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       const turn: AiTurn = { question: text, answer: data.answer, sources: data.sources }
       turns.push(turn)
       turns = turns.slice(-30)
-      renderSources(addMessage('ai', data.answer), data.sources)
+      if (!answerMessage) answerMessage = addMessage('ai', data.answer)
+      else renderAnswer(answerMessage.querySelector<HTMLElement>('.ai-answer')!, data.answer)
+      renderSources(answerMessage, data.sources)
+      ragStatus.setOutcome(data)
       const saved = saveSession(workspace, turns)
       status.textContent = [
         data.retrievalMode === 'rag' ? '本地混合检索' : data.retrievalMode === 'keyword' ? '本地关键词检索' : '',
@@ -200,15 +252,17 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       ].filter(Boolean).join(' · ')
       if (data.retrievalQuery !== text) status.title = '本轮检索问题：' + data.retrievalQuery
     } catch {
-      userMessage?.remove()
       if (current === generation) {
+        markIncomplete('连接中断')
         question.value = text
         status.textContent = '请求失败，请检查模型配置后重试'
       }
     } finally {
+      unsubscribe?.()
+      if (renderTimer !== undefined) window.clearTimeout(renderTimer)
       if (current !== generation) {
-        userMessage?.remove()
         if (requestWorkspace === workspace) {
+          markIncomplete('已停止')
           question.value = text
           status.textContent = '已停止，本轮未加入对话'
         }
@@ -234,7 +288,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       local.checked = cfg.useLocal
       web.checked = cfg.useWeb
       syncWorkspace(ws)
-      if (!cfg.apiKey && cfg.provider !== 'ollama') {
+      if (!cfg.model || (!cfg.apiKey && ['openrouter', 'siliconcloud'].includes(cfg.provider))) {
         configBody.style.display = 'flex'
         configToggle.setAttribute('aria-expanded', 'true')
       }

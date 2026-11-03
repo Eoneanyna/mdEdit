@@ -26,13 +26,15 @@ set HF_ENDPOINT=https://hf-mirror.com
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | /health | 存活检查,返回 embedder/索引状态 |
+| GET | /health | 存活检查，返回协议、嵌入器、索引状态、工作区、块数和构建阶段/进度；建索引期间也可读取 |
 | POST | /index | `{"workspace": "D:/docs", "force": false}` 检查内容变化后建索引，返回 `protocol: 2`；`force` 可强制重建 |
 | POST | /search | `{"query": "...", "top_k": 6, "method": "hybrid"}` 返回 `[{path, rel, title, snippet, score}]` |
 
 `method` 可选 `hybrid`(默认)/ `bm25` / `vector`,用于评测对比。
 
 客户端的 `/search` 请求携带 `workspace`，服务端在同一把锁内核对工作区、刷新索引并查询，防止不同窗口或评测切换工作区后串用旧索引。未传工作区时搜索当前索引，用于兼容评测脚本。
+
+`/health` 的 `building/phase/completed/total/error` 用于状态展示。向量按 64 个块分批构建并上报进度；指纹检查、模型加载和文档扫描阶段没有伪造的百分比。新索引构建完成后才替换旧索引。
 
 默认服务地址为 `http://127.0.0.1:8765`，Electron 主进程可通过环境变量 `MDEDIT_RAG_URL` 指定其他地址。设置 `MDEDIT_EMBEDDER=hash` 可在测试时跳过语义模型加载。仅监听本机回环地址，不要暴露到公网。
 
@@ -57,6 +59,14 @@ set HF_ENDPOINT=https://hf-mirror.com
 ```bash
 .venv/Scripts/python evals/run_eval.py
 ```
+
+也可独立进程内评测，不触碰正在使用的服务索引：
+
+```bash
+.venv/Scripts/python evals/run_eval.py --in-process --embedder semantic
+```
+
+`semantic` 模式要求语义模型可用，加载失败直接报错，不会静默降级污染实验结果。`--embedder hash` 可测试无模型环境；`--top-k` 可覆盖数据集默认值。
 
 输出 bm25 / vector / hybrid 三模式对比表(Recall@k、MRR、P@1),明细落 `evals/results-*.json`。
 语料在 `evals/corpus/`,数据集在 `evals/dataset.json`。

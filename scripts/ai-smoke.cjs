@@ -57,14 +57,18 @@ async function run() {
   try {
     for (let i = 0; i < questions.length; i++) {
       if (i === 2) fs.writeFileSync(document, content('2026年12月18日'), 'utf8')
-      const result = await queryAi({ ...config, question: questions[i], history }, workspace)
+      let streamed = ''
+      let deltaCount = 0
+      const result = await queryAi({ ...config, requestId: 'smoke-' + i, question: questions[i], history }, workspace, undefined, event => {
+        if (event.type === 'delta') { streamed += event.text; deltaCount++ }
+      })
       const correct = i === 0 ? /12\D*8/.test(result.answer) : i === 1 ? result.answer.includes('林知远') : /12\D*18/.test(result.answer)
       const sourced = result.sources.some(s => s.path === document)
       const cited = /\[1\]/.test(result.answer)
       const citationHandled = cited || result.notices.some(n => n.includes('未标注有效引用'))
-      console.log(JSON.stringify({ turn: i + 1, mode: result.retrievalMode, correct, sourced, cited,
+      console.log(JSON.stringify({ turn: i + 1, mode: result.retrievalMode, correct, sourced, cited, deltaCount,
         retrievalQuery: result.retrievalQuery, answer: result.answer, notices: result.notices }))
-      if (!correct || !sourced || !citationHandled) throw new Error('多轮检索验收未通过')
+      if (!correct || !sourced || !citationHandled || !deltaCount || streamed.trim() !== result.answer) throw new Error('多轮检索与流式验收未通过')
       history.push({ question: questions[i], answer: result.answer, sources: result.sources })
     }
     console.log('PASS: 本地检索、指代追问、文件修改后重新检索')

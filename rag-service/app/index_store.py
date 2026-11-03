@@ -3,7 +3,7 @@
 import re
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -58,20 +58,26 @@ class SearchIndex:
     def ready(self) -> bool:
         return bool(self.chunks)
 
-    def build(self, workspace: str, embedder=None) -> None:
+    def build(self, workspace: str, embedder=None,
+              on_progress: Optional[Callable[[str, int, int], None]] = None) -> None:
         t0 = time.time()
-        self.embedder = embedder or self.embedder or create_embedder()
-        self.chunks = ingest(workspace)
-        self.workspace = workspace
-        if not self.chunks:
-            self.vectors = None
-            self.bm25 = BM25Index()
-            self.built_at = time.time()
-            return
-        texts = [f"{c.title}\n{c.text}" for c in self.chunks]
-        self.bm25 = BM25Index()
-        self.bm25.build(texts)
-        self.vectors = self.embedder.encode(texts)
+        embedder = embedder or self.embedder or create_embedder()
+        progress = on_progress or (lambda phase, completed, total: None)
+        progress('scanning', 0, 0)
+        chunks = ingest(workspace)
+        texts = [f"{c.title}\n{c.text}" for c in chunks]
+        progress('bm25', 0, len(chunks))
+        bm25 = BM25Index()
+        bm25.build(texts)
+        batches = []
+        progress('embedding', 0, len(chunks))
+        for start in range(0, len(texts), 64):
+            batches.append(embedder.encode(texts[start:start + 64]))
+            progress('embedding', min(start + 64, len(texts)), len(texts))
+        vectors = np.concatenate(batches) if batches else None
+        # 完成后替换，失败时继续保留上次完整索引供状态展示。
+        self.chunks, self.bm25, self.vectors = chunks, bm25, vectors
+        self.embedder, self.workspace = embedder, workspace
         self.built_at = time.time()
         print(
             f"[index] 完成: {len(self.chunks)} 块, "

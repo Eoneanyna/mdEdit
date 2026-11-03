@@ -1,4 +1,4 @@
-import type { AiQueryRequest, AiQueryResponse, AiSource } from '@shared/ipc'
+import type { AiEventPayload, AiQueryEvent, AiQueryRequest, AiQueryResponse, AiSource } from '@shared/ipc'
 import { ANSWER_SYSTEM, answerPrompt, validateRequest } from './conversation'
 import { callOpenAICompat } from './providers/openai-compat'
 import { searchLocalMd } from './search-local'
@@ -6,13 +6,19 @@ import { ragSearch } from './search-rag'
 import { searchWeb } from './search-web'
 
 /** 与 Electron 解耦，供 IPC 和真实 API 冒烟测试共用。 */
-export async function queryAi(input: AiQueryRequest, workspace: string | null, signal?: AbortSignal): Promise<AiQueryResponse> {
+export async function queryAi(input: AiQueryRequest, workspace: string | null, signal?: AbortSignal,
+  onEvent?: (event: AiQueryEvent) => void): Promise<AiQueryResponse> {
   const req = validateRequest(input)
+  const emit = (event: AiEventPayload): void => {
+    if (!signal?.aborted) onEvent?.({ ...event, requestId: req.requestId || '' })
+  }
+  const stage = (value: 'rewriting' | 'local' | 'web' | 'answering'): void => emit({ type: 'stage', stage: value })
   const notices: string[] = []
   let retrievalQuery = req.question
   let retrievalMode: AiQueryResponse['retrievalMode'] = 'none'
   signal?.throwIfAborted()
   if (req.history?.length && (req.useLocal || req.useWeb)) {
+    stage('rewriting')
     try {
       const rewritten = await callOpenAICompat(
         { ...req, history: [] },
@@ -30,6 +36,7 @@ export async function queryAi(input: AiQueryRequest, workspace: string | null, s
   }
   const sources: AiSource[] = []
   if (req.useLocal && workspace) {
+    stage('local')
     const rag = await ragSearch(retrievalQuery, workspace, 6, signal)
     signal?.throwIfAborted()
     const local = rag?.length ? rag : await searchLocalMd(retrievalQuery, workspace, 6, signal)
@@ -41,13 +48,17 @@ export async function queryAi(input: AiQueryRequest, workspace: string | null, s
     notices.push('尚未打开工作区，未检索本地文档。')
   }
   if (req.useWeb) {
+    stage('web')
     const web = await searchWeb(retrievalQuery, 4, signal)
     for (const hit of web) sources.push({ id: sources.length + 1, type: 'web', title: hit.title, url: hit.url, snippet: hit.description })
     if (!web.length) notices.push('网页搜索未返回结果。')
   }
   signal?.throwIfAborted()
+  emit({ type: 'sources', sources })
+  stage('answering')
   const context = sources.map((s) => `[${s.id}] ${s.type === 'local' ? '本地文档' : '网页'} ${s.title}\n${s.snippet}`).join('\n\n')
-  const answer = await callOpenAICompat(req, ANSWER_SYSTEM, answerPrompt(req.question, context), signal)
+  const answer = await callOpenAICompat(req, ANSWER_SYSTEM, answerPrompt(req.question, context), signal,
+    onEvent ? text => emit({ type: 'delta', text }) : undefined)
   signal?.throwIfAborted()
   const citedIds = [...answer.matchAll(/\[(\d+)\]/g)].map(match => Number(match[1]))
   if (citedIds.some(id => !sources.some(source => source.id === id))) {

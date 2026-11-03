@@ -847,3 +847,27 @@ body {
 .ai-turn-sources .ai-source-item { display: block; padding: 4px 0; border: 0; background: transparent; text-align: left; overflow-wrap: anywhere; }
 .ai-turn-sources .ai-source-item__snip { white-space: pre-wrap; max-height: 90px; overflow: auto; }
 .ai-btn:disabled { opacity: 0.55; cursor: default; }
+
+/* AI 回答与本地检索状态 */
+.ai-rag-status { margin: 0 8px 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; color: var(--fg-muted); flex-shrink: 0; }
+.ai-rag-status summary { cursor: pointer; }
+#ai-rag-info, #ai-rag-outcome { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-top: 6px; }
+#ai-rag-refresh { margin-top: 6px; }
+#ai-rag-status { max-height: 28%; overflow: auto; flex-shrink: 0; }
+.ai-answer { white-space: normal; overflow-wrap: anywhere; }
+.ai-answer > :first-child { margin-top: 0; }
+.ai-answer > :last-child { margin-bottom: 0; }
+.ai-answer p { margin: 0.5em 0; }
+.ai-answer h1, .ai-answer h2, .ai-answer h3, .ai-answer h4, .ai-answer h5, .ai-answer h6 { margin: 0.8em 0 0.35em; line-height: 1.4; font-size: 1.12em; }
+.ai-answer ul, .ai-answer ol { padding-left: 1.6em; margin: 0.5em 0; }
+.ai-answer li > p { margin: 0.2em 0; }
+.ai-answer pre { white-space: pre; overflow-x: auto; max-width: 100%; padding: 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--border); }
+.ai-answer code { font-family: var(--font-mono); font-size: 0.95em; }
+.ai-answer :not(pre) > code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
+.ai-answer blockquote { margin: 0.5em 0; padding-left: 10px; border-left: 3px solid var(--border); color: var(--fg-muted); }
+.ai-answer .ai-table-scroll { max-width: 100%; overflow-x: auto; }
+.ai-answer table { border-collapse: collapse; font-size: 11px; }
+.ai-answer th, .ai-answer td { border: 1px solid var(--border); padding: 4px 7px; min-width: 48px; }
+.ai-answer a { color: var(--accent); }
+.ai-msg--incomplete { border-style: dashed; }
+.ai-turn-note { margin-top: 8px; font-size: 11px; color: var(--fg-muted); white-space: normal; }

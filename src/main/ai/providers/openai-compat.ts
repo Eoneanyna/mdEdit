@@ -1,5 +1,6 @@
 import type { AiQueryRequest } from '@shared/ipc'
 import { boundedHistory } from '../conversation'
+import { readCompletionStream } from './sse'
 
 export const PROVIDER_URLS = {
   openrouter: 'https://openrouter.ai/api/v1',
@@ -8,7 +9,8 @@ export const PROVIDER_URLS = {
 }
 
 export async function callOpenAICompat(
-  req: AiQueryRequest, systemPrompt: string, userPrompt: string, signal?: AbortSignal
+  req: AiQueryRequest, systemPrompt: string, userPrompt: string, signal?: AbortSignal,
+  onDelta?: (text: string) => void
 ): Promise<string> {
   const baseUrl = req.baseUrl?.trim() || (req.provider === 'custom' ? '' : PROVIDER_URLS[req.provider])
   if (!baseUrl) throw new Error('自定义供应商需要填写 Base URL')
@@ -33,7 +35,7 @@ export async function callOpenAICompat(
   try {
     const res = await fetch(url, {
       method: 'POST', headers,
-      body: JSON.stringify({ model: req.model, messages, temperature: 0.2, max_tokens: 2048 }),
+      body: JSON.stringify({ model: req.model, messages, temperature: 0.2, max_tokens: 2048, ...(onDelta ? { stream: true } : {}) }),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(90_000)]) : AbortSignal.timeout(90_000)
     })
     if (!res.ok) {
@@ -44,9 +46,13 @@ export async function callOpenAICompat(
       // 不回显供应商原始错误，避免凭据意外进入界面和日志。
       throw new Error(`模型请求失败 (${res.status})：${hints[res.status] || '供应商暂时不可用，请稍后重试'}`)
     }
+    if (onDelta && res.headers.get('content-type')?.includes('text/event-stream')) {
+      return await readCompletionStream(res, onDelta)
+    }
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
     const content = data.choices?.[0]?.message?.content
     if (typeof content !== 'string' || !content.trim()) throw new Error('模型返回空内容，请重试或更换模型')
+    onDelta?.(content)
     return content.trim()
   } catch (error) {
     if (signal?.aborted) throw new Error('已停止生成')

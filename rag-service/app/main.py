@@ -14,6 +14,17 @@ app = FastAPI(title="mdEdit RAG", version="0.2.0")
 _build_lock = threading.RLock()
 _embedder = None
 _fingerprint = None
+_status_lock = threading.Lock()
+_status = {"building": False, "phase": "idle", "completed": 0, "total": 0, "error": None}
+
+
+def set_status(**values) -> None:
+    with _status_lock:
+        _status.update(values)
+
+
+def report_progress(phase: str, completed: int, total: int) -> None:
+    set_status(phase=phase, completed=completed, total=total)
 
 
 class IndexRequest(BaseModel):
@@ -35,21 +46,33 @@ def ensure_index(workspace: str, force: bool = False) -> dict:
     if not root.is_dir():
         raise HTTPException(status_code=400, detail="工作区目录不存在")
     workspace = str(root)
-    fingerprint = workspace_fingerprint(workspace)
-    idx = get_index()
-    if not force and idx.workspace == workspace and _fingerprint == fingerprint:
-        return {"ok": True, "cached": True, "chunks": len(idx.chunks), "protocol": 2}
-    if _embedder is None:
-        _embedder = create_embedder()
-    _fingerprint = None
-    idx.build(workspace, embedder=_embedder)
-    _fingerprint = fingerprint
-    return {"ok": True, "cached": False, "chunks": len(idx.chunks), "protocol": 2}
+    set_status(building=True, phase='checking', completed=0, total=0, error=None)
+    try:
+        fingerprint = workspace_fingerprint(workspace)
+        idx = get_index()
+        if not force and idx.workspace == workspace and _fingerprint == fingerprint:
+            return {"ok": True, "cached": True, "chunks": len(idx.chunks), "protocol": 2}
+        if _embedder is None:
+            set_status(phase='loading')
+            _embedder = create_embedder()
+        _fingerprint = None
+        idx.build(workspace, embedder=_embedder, on_progress=report_progress)
+        _fingerprint = fingerprint
+        return {"ok": True, "cached": False, "chunks": len(idx.chunks), "protocol": 2}
+    except Exception:
+        set_status(phase='error', error='索引构建失败，请检查工作区权限、模型和服务日志')
+        raise
+    finally:
+        with _status_lock:
+            _status['building'] = False
+            if not _status['error']:
+                _status['phase'] = 'idle'
 
 
 @app.get("/health")
 def health() -> dict:
-    with _build_lock:
+    # 状态锁不参与耗时建索引操作，模型加载或嵌入期间仍可读取进度。
+    with _status_lock:
         idx = get_index()
         return {
             "ok": True,
@@ -57,6 +80,9 @@ def health() -> dict:
             "indexed": idx.ready,
             "chunks": len(idx.chunks),
             "workspace": idx.workspace,
+            "protocol": 2,
+            "built_at": idx.built_at,
+            **_status,
         }
 
 

@@ -3,6 +3,8 @@ import {
   type AiConfig,
   type AiQueryRequest,
   type AiQueryResponse,
+  type AiQueryEvent,
+  type RagStatus,
   type ExternalApp,
   type FileEntry,
   type FileKind,
@@ -130,6 +132,8 @@ const api: RendererApi = {
   setAiConfig: (config: AiConfig): Promise<void> => ipcRenderer.invoke('ai:set-config', config),
   aiQuery: (req: AiQueryRequest): Promise<Result<AiQueryResponse>> => ipcRenderer.invoke('ai:query', req),
   cancelAiQuery: (): Promise<void> => ipcRenderer.invoke('ai:cancel'),
+  onAiEvent: (handler: (event: AiQueryEvent) => void): (() => void) => subscribe('ai:event', handler),
+  getRagStatus: (): Promise<RagStatus> => ipcRenderer.invoke('ai:rag-status'),
   getWorkspacePath: (): Promise<string | null> => ipcRenderer.invoke('workspace:get-last'),
   openLocalFile: (filePath: string): Promise<Result<null>> => ipcRenderer.invoke('ai:open-local', filePath),
   openExternal: (url: string): Promise<Result<null>> => ipcRenderer.invoke('external:open-url', url)

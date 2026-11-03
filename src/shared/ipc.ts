@@ -207,6 +207,8 @@ export interface RendererApi {
   /** AI 助手:发起一次检索增强问答 */
   aiQuery: (req: AiQueryRequest) => Promise<Result<AiQueryResponse>>
   cancelAiQuery: () => Promise<void>
+  onAiEvent: (handler: (event: AiQueryEvent) => void) => () => void
+  getRagStatus: () => Promise<RagStatus>
   /** 当前工作区路径,供 AI 面板展示 */
   getWorkspacePath: () => Promise<string | null>
   /** 点击来源时打开本地文件 */
@@ -226,6 +228,7 @@ export interface AiSource {
 }
 
 export interface AiQueryRequest {
+  requestId?: string
   question: string
   provider: 'openrouter' | 'siliconcloud' | 'ollama' | 'custom'
   model: string
@@ -234,6 +237,27 @@ export interface AiQueryRequest {
   useLocal: boolean
   useWeb: boolean
   history?: AiTurn[]
+}
+
+export type AiEventPayload =
+  | { type: 'stage'; stage: 'rewriting' | 'local' | 'web' | 'answering' }
+  | { type: 'delta'; text: string }
+  | { type: 'sources'; sources: AiSource[] }
+
+export type AiQueryEvent = { requestId: string } & AiEventPayload
+
+export interface RagStatus {
+  available: boolean
+  compatible: boolean
+  indexed: boolean
+  chunks: number
+  embedder: string | null
+  workspace: string | null
+  building: boolean
+  phase: string
+  completed: number
+  total: number
+  error: string | null
 }
 
 /** 只有成功完成的轮次进入后续上下文。 */

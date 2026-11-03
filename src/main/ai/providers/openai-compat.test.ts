@@ -29,4 +29,12 @@ describe('OpenAI compatible requests', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')))
     await expect(callOpenAICompat(req, '', '', controller.signal)).rejects.toThrow('已停止')
   })
+  it('requests SSE when a delta handler is present and parses the answer', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response('data: {"choices":[{"delta":{"content":"流式答案"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } }))
+    vi.stubGlobal('fetch', fetcher)
+    const onDelta = vi.fn()
+    expect(await callOpenAICompat(req, '', '', undefined, onDelta)).toBe('流式答案')
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).stream).toBe(true)
+    expect(onDelta).toHaveBeenCalledWith('流式答案')
+  })
 })
