@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AiQueryRequest } from '@shared/ipc'
 vi.mock('./providers/openai-compat', () => ({ callOpenAICompat: vi.fn() }))
 vi.mock('./search-rag', () => ({ ragSearch: vi.fn() }))
-vi.mock('./search-local', () => ({ searchLocalMd: vi.fn() }))
+vi.mock('./search-local', () => ({ searchLocalMd: vi.fn(), keywords: (q: string) => [q] }))
 vi.mock('./search-web', () => ({ searchWeb: vi.fn() }))
 import { callOpenAICompat } from './providers/openai-compat'
 import { ragSearch } from './search-rag'
@@ -63,5 +63,26 @@ describe('retrieval augmented follow-ups', () => {
     expect(events.map(e => e.type)).toEqual(['stage', 'sources', 'stage', 'delta'])
     expect(events.every(e => e.requestId === 'test-stream')).toBe(true)
     expect(events.at(-1)).toEqual({ requestId: 'test-stream', type: 'delta', text: '答案 [1]' })
+  })
+  it('refuses without calling a model when document retrieval returns no evidence', async () => {
+    const result = await queryAi({ ...req, history: [] }, '/docs')
+    expect(result.answer).toContain('未在本轮资料中找到足够依据')
+    expect(result.sources).toEqual([])
+    expect(callOpenAICompat).not.toHaveBeenCalled()
+  })
+  it('allows general conversation when all retrieval scopes are explicitly disabled', async () => {
+    vi.mocked(callOpenAICompat).mockResolvedValue('通用回答')
+    const result = await queryAi({ ...req, useLocal: false, history: [] }, null)
+    expect(result.answer).toBe('通用回答')
+  })
+  it('uses explicitly included unsaved context without reading the workspace', async () => {
+    vi.mocked(callOpenAICompat).mockResolvedValue('林知远 [1]')
+    const result = await queryAi({ ...req, useLocal: false, history: [], context: {
+      kind: 'document', name: '未命名.md', path: null, content: '负责人：林知远', documentHash: 'a'.repeat(64), dirty: true, allowUnsaved: true
+    } }, null)
+    expect(result.sources[0]).toMatchObject({ type: 'context', dirty: true, snippet: '负责人：林知远' })
+    expect(searchLocalMd).not.toHaveBeenCalled()
+    expect(ragSearch).not.toHaveBeenCalled()
+    expect(vi.mocked(callOpenAICompat).mock.calls[0][2]).toContain('负责人：林知远')
   })
 })

@@ -20,6 +20,7 @@ import { DIVIDER, type PopupItem, showPopup } from './ui/popup'
 import { showPrompt } from './ui/prompt'
 import { baseName, dirName } from './utils/path'
 import { createAiPanel } from './ai/ai-panel'
+import { documentHash } from './editor/citation'
 import './styles/main.css'
 
 const root = document.querySelector<HTMLDivElement>('#app')
@@ -530,11 +531,35 @@ async function bootstrap(): Promise<void> {
   })
 
   // 应用运行期间用户又双击了文件
-  window.api.onOpenFile((filePath) => void openWithWorkspace(filePath))
+  window.api.onOpenFile((filePath, source) => void (async () => {
+    if (!source || doc.path !== filePath) await openWithWorkspace(filePath)
+    if (source && doc.path === filePath) {
+      const match = editor.revealSource(source)
+      notify(match === 'exact' ? '已定位引用片段' : match === 'partial' ? '仅匹配到部分内容，文档可能已变化，请核对引用' : '引用片段已找不到，文档可能已变化，请重新提问')
+    }
+  })().catch(() => notify('打开引用失败')))
 
   // AI 面板
   const aiPanel = createAiPanel(el('#ai-panel'), {
-    getWorkspace: () => window.api.getWorkspacePath()
+    getWorkspace: () => window.api.getWorkspacePath(),
+    getContext: async (kind, allowUnsaved) => {
+      const content = editor.getMarkdown()
+      const dirty = doc.dirty || !doc.path
+      if (dirty && !allowUnsaved) throw new Error('请先保存文档，或勾选“包含未保存内容”')
+      const selection = editor.getSelection()
+      if (kind === 'selection' && !selection.text.trim()) throw new Error('请先在编辑器中选中需要询问的文字')
+      return { kind, name: doc.name, path: doc.path, content: kind === 'selection' ? selection.text : content,
+        documentHash: await documentHash(content), dirty, allowUnsaved,
+        ...(kind === 'selection' ? { selectionFrom: selection.from, selectionTo: selection.to } : {}) }
+    },
+    revealContext: async source => {
+      if (source.path !== (doc.path || undefined) || source.title !== doc.name || source.documentHash !== await documentHash(editor.getMarkdown())) {
+        throw new Error('该引用来自当时的编辑快照；当前文档已切换或内容已变化，请切回原文档并重新提问')
+      }
+      const match = editor.revealSource(source)
+      if (match === 'missing') throw new Error('未找到引用片段，请重新提问')
+      notify(match === 'exact' ? '已定位编辑快照中的引用' : '仅定位到部分内容，请核对引用')
+    }
   })
 
   // 恢复上次的工作区

@@ -871,3 +871,9 @@ body {
 .ai-answer a { color: var(--accent); }
 .ai-msg--incomplete { border-style: dashed; }
 .ai-turn-note { margin-top: 8px; font-size: 11px; color: var(--fg-muted); white-space: normal; }
+
+.ai-scope-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 4px 8px 8px; font-size: 11px; flex-shrink: 0; }
+.ai-scope-row .ai-select { width: auto; flex: 1; min-width: 110px; }
+.ai-check[hidden] { display: none; }
+.ai-citation-link { display: inline; border: 0; padding: 0 2px; color: var(--accent); background: transparent; text-decoration: underline; font: inherit; cursor: pointer; }
+.ai-citation-link:focus-visible { outline: 2px solid var(--accent); border-radius: 2px; }

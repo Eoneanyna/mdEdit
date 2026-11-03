@@ -1,16 +1,20 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { extname, join, relative } from 'node:path'
+import { chunkDocument } from './document-chunks'
 
 export interface LocalSearchResult {
   path: string
   rel: string
   snippet: string
   score: number
+  heading?: string
+  startLine?: number
+  endLine?: number
 }
 
 const EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.txt'])
 const SKIP = new Set(['node_modules', 'dist', 'out', 'release', '__pycache__'])
-const STOP = new Set(['什么', '怎么', '如何', '哪些', '是否', '这个', '那个', '一下', '请问', '可以', 'the', 'is', 'are', 'what', 'how'])
+const STOP = new Set(['什么', '多少', '几个', '个月', '几天', '怎么', '如何', '哪些', '是否', '这个', '那个', '一下', '请问', '可以', 'the', 'is', 'are', 'what', 'how'])
 
 export function keywords(query: string): string[] {
   const tokens = query.toLowerCase().match(/[a-z0-9_]+|[\u4e00-\u9fff]+/g) || []
@@ -37,11 +41,12 @@ export async function searchLocalMd(query: string, workspace: string, limit = 6,
         if ((await stat(path)).size > 2_000_000) continue
         const text = await readFile(path, 'utf8')
         const rel = relative(workspace, path).replace(/\\/g, '/')
-        for (let start = 0; start < text.length; start += 1200) {
-          const snippet = text.slice(start, start + 1400)
+        for (const chunk of chunkDocument(text)) {
+          const { snippet } = chunk
           const lower = snippet.toLowerCase()
           const score = terms.reduce((sum, term) => sum + (lower.includes(term) ? 1 : 0) + (rel.toLowerCase().includes(term) ? 0.5 : 0), 0)
-          if (score > 0) results.push({ path, rel, snippet, score })
+          const overlap = terms.filter(term => (lower + rel.toLowerCase()).includes(term)).length
+          if (overlap > 0) results.push({ path, rel, ...chunk, score })
         }
       } catch { /* 文件在扫描时删除或不可读，继续检索。 */ }
     }

@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { launchApp, makeWorkspace, type AppHarness } from './helpers'
@@ -85,6 +85,8 @@ test('本地多轮问答、文件更新、来源打开、会话恢复和新对�
   await win.locator('.ai-turn-sources summary').click()
   await win.locator('.ai-source-item').click()
   await expect.poll(() => win.evaluate(() => (window as any).__doc.name)).toBe('青岚项目.md')
+  await expect.poll(() => win.evaluate(() => (window as any).__editor.getSelection().text)).toContain('林知远')
+  await expect(win.locator('.ai-source-item')).toContainText('L1')
 
   writeFileSync(join(workspace, '青岚项目.md'), '# 青岚项目\n负责人：陈小川\n', 'utf8')
   await win.locator('#ai-question').fill('他现在是谁？')
@@ -185,4 +187,59 @@ test('Enter 不重复提交，停止的轮次不进入历史', async () => {
   await win.locator('#ai-send').click()
   await expect(win.locator('.ai-msg--ai')).toHaveCount(1)
   expect(calls.at(-1)!.messages).toHaveLength(2)
+})
+
+test('当前文档的未保存内容需明确勾选，引用定位不写回文件，旧快照会提示失效', async () => {
+  const { win } = harness!
+  const workspace = makeWorkspace({ '青岚项目.md': '# 青岚项目\n\n负责人：林知远\n' })
+  const file = join(workspace, '青岚项目.md')
+  await configure(workspace)
+  await win.evaluate(async file => {
+    const hooks = window as any
+    hooks.__actions.setAutoSave(false)
+    await hooks.__actions.openPath(file)
+    hooks.__editor.setMarkdown('# 青岚项目\n\n负责人：陈小川\n')
+  }, file)
+  await win.locator('#ai-scope').selectOption('document')
+  await win.locator('#ai-question').fill('负责人是谁？')
+  await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-status')).toContainText('先保存')
+  expect(calls).toHaveLength(0)
+  await win.locator('#ai-unsaved').check()
+  await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-send')).toBeEnabled()
+  await expect(win.locator('.ai-msg--ai')).toContainText('陈小川')
+  expect(calls[0].messages.at(-1)!.content).toContain('陈小川')
+  expect(readFileSync(file, 'utf8')).toContain('林知远')
+  await win.locator('.ai-citation-link').click()
+  await expect.poll(() => win.evaluate(() => (window as any).__editor.getSelection().text)).toContain('陈小川')
+  await expect.poll(() => win.evaluate(() => (window as any).__doc.dirty)).toBe(true)
+  await win.screenshot({ path: test.info().outputPath('ai-context.png') })
+  await win.evaluate(() => (window as any).__editor.setMarkdown('# 青岚项目\n\n文档已更新\n'))
+  await win.locator('.ai-citation-link').click()
+  await expect(win.locator('#ai-status')).toContainText('快照')
+})
+
+test('选区问答只发送选中文字，未命中工作区时不调用模型', async () => {
+  const { win } = harness!
+  const workspace = makeWorkspace({ '青岚项目.md': '# 青岚项目\n\n负责人：林知远\n\n验收日期：2026年12月8日\n' })
+  await configure(workspace)
+  await win.evaluate(async file => {
+    const hooks = window as any
+    await hooks.__actions.openPath(file)
+    hooks.__editor.revealSource({ id: 1, type: 'local', title: '青岚项目.md', snippet: '负责人：林知远' })
+  }, join(workspace, '青岚项目.md'))
+  await win.locator('#ai-scope').selectOption('selection')
+  await win.locator('#ai-question').fill('解释所选内容')
+  await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-send')).toBeEnabled()
+  expect(calls).toHaveLength(1)
+  expect(calls[0].messages.at(-1)!.content).toContain('负责人：林知远')
+  expect(calls[0].messages.at(-1)!.content).not.toContain('验收日期')
+  await win.locator('#ai-clear').click()
+  await win.locator('#ai-scope').selectOption('workspace')
+  await win.locator('#ai-question').fill('蓝鲸的妊娠周期有几个月')
+  await win.locator('#ai-send').click()
+  await expect(win.locator('.ai-msg--ai')).toContainText('未在本轮资料中找到足够依据')
+  expect(calls).toHaveLength(1)
 })

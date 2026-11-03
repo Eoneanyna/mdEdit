@@ -164,7 +164,7 @@ export interface RendererApi {
    */
   takePendingFile: () => Promise<string | null>
   /** 应用已在运行时,用户又双击了文件 */
-  onOpenFile: (handler: (filePath: string) => void) => () => void
+  onOpenFile: (handler: (filePath: string, source?: AiSource) => void) => () => void
 
   /** 自动保存开关。仅对已有路径的文档生效 */
   getAutoSave: () => Promise<boolean>
@@ -212,7 +212,7 @@ export interface RendererApi {
   /** 当前工作区路径,供 AI 面板展示 */
   getWorkspacePath: () => Promise<string | null>
   /** 点击来源时打开本地文件 */
-  openLocalFile: (filePath: string) => Promise<Result<null>>
+  openLocalFile: (filePath: string, source?: AiSource) => Promise<Result<null>>
   /** 点击来源时在浏览器打开网页 */
   openExternal: (url: string) => Promise<Result<null>>
 }
@@ -220,11 +220,31 @@ export interface RendererApi {
 /** AI 助手:一条检索到的资料 */
 export interface AiSource {
   id: number
-  type: 'local' | 'web'
+  type: 'local' | 'web' | 'context'
   title: string
   path?: string
   url?: string
   snippet: string
+  heading?: string
+  startLine?: number
+  endLine?: number
+  contextKind?: 'document' | 'selection'
+  documentHash?: string
+  dirty?: boolean
+  selectionFrom?: number
+  selectionTo?: number
+}
+
+export interface AiDocumentContext {
+  kind: 'document' | 'selection'
+  name: string
+  path: string | null
+  content: string
+  documentHash: string
+  dirty: boolean
+  allowUnsaved: boolean
+  selectionFrom?: number
+  selectionTo?: number
 }
 
 export interface AiQueryRequest {
@@ -237,6 +257,7 @@ export interface AiQueryRequest {
   useLocal: boolean
   useWeb: boolean
   history?: AiTurn[]
+  context?: AiDocumentContext
 }
 
 export type AiEventPayload =

@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { isAbsolute, relative, resolve } from 'node:path'
-import type { AiConfig, AiQueryRequest, Result } from '@shared/ipc'
+import type { AiConfig, AiQueryRequest, AiSource, Result } from '@shared/ipc'
 import { queryAi } from '../ai/query'
 import { getRagStatus } from '../ai/search-rag'
 import * as store from '../store'
@@ -31,14 +31,14 @@ export function registerAiIpc(): void {
   ipcMain.handle('ai:set-config', (_event, config: AiConfig) => {
     store.setAiConfig(config)
   })
-  ipcMain.handle('ai:open-local', (event, filePath: string): Promise<Result<null>> => guard(() => {
+  ipcMain.handle('ai:open-local', (event, filePath: string, source?: AiSource): Promise<Result<null>> => guard(() => {
     const workspace = store.getLastWorkspace()
     if (!workspace || typeof filePath !== 'string') throw new Error('请先打开工作区')
     const rel = relative(resolve(workspace), resolve(filePath))
     if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('来源文件不在当前工作区')
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) throw new Error('窗口已关闭')
-    event.sender.send('app:open-file', filePath)
+    event.sender.send('app:open-file', filePath, source && source.type === 'local' && source.path === filePath ? source : undefined)
     win.focus()
     return null
   }))

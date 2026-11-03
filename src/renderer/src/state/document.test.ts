@@ -15,6 +15,8 @@ class FakeEditor implements EditorHandle {
   getMarkdown(): string {
     return this.content
   }
+  getSelection() { return { text: '', from: 0, to: 0 } }
+  revealSource() { return 'missing' as const }
 
   setMarkdown(markdown: string): void {
     this.content = markdown
@@ -49,6 +51,12 @@ const openDoc = (content: string): OpenedDocument => ({
 })
 
 describe('DocumentState', () => {
+  it('变更通知尚未到达时也能即时识别未保存内容', () => {
+    const editor = new FakeEditor('已保存')
+    const doc = new DocumentState(editor)
+    editor.content = '尚未发送变更通知的编辑内容'
+    expect(doc.dirty).toBe(true)
+  })
   it('初始为空白未命名文档,不脏', () => {
     const editor = new FakeEditor()
     const doc = new DocumentState(editor)

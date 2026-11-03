@@ -1,5 +1,6 @@
 import type { AiEventPayload, AiQueryEvent, AiQueryRequest, AiQueryResponse, AiSource } from '@shared/ipc'
-import { ANSWER_SYSTEM, answerPrompt, validateRequest } from './conversation'
+import { ANSWER_SYSTEM, answerPrompt, validateRequest, NO_EVIDENCE_ANSWER } from './conversation'
+import { contextSources } from './context'
 import { callOpenAICompat } from './providers/openai-compat'
 import { searchLocalMd } from './search-local'
 import { ragSearch } from './search-rag'
@@ -34,7 +35,8 @@ export async function queryAi(input: AiQueryRequest, workspace: string | null, s
       notices.push('追问改写未成功，已结合上一轮问题检索。')
     }
   }
-  const sources: AiSource[] = []
+  const sources: AiSource[] = req.context ? contextSources(req.context, retrievalQuery) : []
+  if (req.context?.content.length && req.context.content.length > 12000) notices.push('当前文档较长，本轮选取最多 6 个片段；总结类问题按全文分布采样，可能遗漏细节。')
   if (req.useLocal && workspace) {
     stage('local')
     const rag = await ragSearch(retrievalQuery, workspace, 6, signal)
@@ -42,7 +44,8 @@ export async function queryAi(input: AiQueryRequest, workspace: string | null, s
     const local = rag?.length ? rag : await searchLocalMd(retrievalQuery, workspace, 6, signal)
     retrievalMode = rag?.length ? 'rag' : 'keyword'
     if (!rag?.length) notices.push('本地 RAG 服务不可用或未命中，已使用内置关键词检索。')
-    for (const hit of local) sources.push({ id: sources.length + 1, type: 'local', title: hit.rel, path: hit.path, snippet: hit.snippet })
+    for (const hit of local) sources.push({ id: sources.length + 1, type: 'local', title: hit.rel, path: hit.path, snippet: hit.snippet,
+      heading: hit.heading, startLine: hit.startLine, endLine: hit.endLine })
     if (!local.length) notices.push('未检索到相关本地文档。')
   } else if (req.useLocal) {
     notices.push('尚未打开工作区，未检索本地文档。')
@@ -56,7 +59,11 @@ export async function queryAi(input: AiQueryRequest, workspace: string | null, s
   signal?.throwIfAborted()
   emit({ type: 'sources', sources })
   stage('answering')
-  const context = sources.map((s) => `[${s.id}] ${s.type === 'local' ? '本地文档' : '网页'} ${s.title}\n${s.snippet}`).join('\n\n')
+  if ((req.useLocal || req.useWeb || req.context) && !sources.length) {
+    emit({ type: 'delta', text: NO_EVIDENCE_ANSWER })
+    return { answer: NO_EVIDENCE_ANSWER, sources, retrievalQuery, retrievalMode, notices }
+  }
+  const context = sources.map((s) => `[${s.id}] ${s.type === 'context' ? '用户明确提供的编辑快照' : s.type === 'local' ? '本地文档' : '网页'} ${s.title}${s.heading ? ' · ' + s.heading : ''}${s.startLine ? ' L' + s.startLine + '-' + s.endLine : ''}\n${s.snippet}`).join('\n\n')
   const answer = await callOpenAICompat(req, ANSWER_SYSTEM, answerPrompt(req.question, context), signal,
     onEvent ? text => emit({ type: 'delta', text }) : undefined)
   signal?.throwIfAborted()

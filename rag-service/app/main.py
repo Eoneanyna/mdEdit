@@ -106,6 +106,7 @@ def search(req: SearchRequest) -> dict:
             "ok": True,
             "results": [
                 {"path": h.chunk.path, "rel": h.chunk.rel, "title": h.chunk.title,
+                 "start_line": h.chunk.start_line, "end_line": h.chunk.end_line,
                  "snippet": h.snippet, "score": h.score}
                 for h in hits
             ],

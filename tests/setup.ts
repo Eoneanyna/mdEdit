@@ -8,6 +8,12 @@ const w = globalThis as typeof globalThis & {
   IntersectionObserver?: typeof IntersectionObserver
 }
 
+// 引用定位会触发 ProseMirror 虚拟光标测量；jsdom 没有布局引擎。
+if (typeof Range !== 'undefined' && typeof Range.prototype.getClientRects !== 'function') {
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+  Range.prototype.getBoundingClientRect = () => new DOMRect()
+}
+
 if (typeof w.matchMedia !== 'function') {
   w.matchMedia = (query: string) =>
     ({

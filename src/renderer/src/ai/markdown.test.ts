@@ -25,3 +25,13 @@ it('opens only an explicit HTTP link through the external API', () => {
   host.querySelector('a')!.click()
   expect(openExternal).toHaveBeenCalledWith('https://example.test/docs')
 })
+it('makes valid citation numbers clickable but leaves code and unknown numbers unchanged', () => {
+  const host = document.createElement('div')
+  const source = { id: 1, type: 'local' as const, title: '笔记.md', snippet: '依据' }
+  const open = vi.fn()
+  renderAnswer(host, '结论 [1]。无效编号 [9]。代码 `[1]`。', { sources: [source], open })
+  expect(host.querySelectorAll('.ai-citation-link')).toHaveLength(1)
+  host.querySelector<HTMLButtonElement>('.ai-citation-link')!.click()
+  expect(open).toHaveBeenCalledWith(source)
+  expect(host.querySelector('code')?.textContent).toBe('[1]')
+})

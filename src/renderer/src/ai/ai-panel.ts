@@ -1,9 +1,13 @@
-import type { AiConfig, AiQueryResponse, AiSource, AiTurn } from '@shared/ipc'
+import type { AiConfig, AiDocumentContext, AiQueryResponse, AiSource, AiTurn } from '@shared/ipc'
 import { loadSession, saveSession } from './session'
 import { renderAnswer } from './markdown'
 import { createRagStatus } from './rag-status'
 
-interface AiPanelDeps { getWorkspace: () => Promise<string | null> }
+interface AiPanelDeps {
+  getWorkspace: () => Promise<string | null>
+  getContext: (kind: 'document' | 'selection', allowUnsaved: boolean) => Promise<AiDocumentContext>
+  revealContext: (source: AiSource) => Promise<void>
+}
 const DEFAULTS: Record<AiConfig['provider'], { baseUrl: string; model: string }> = {
   openrouter: { baseUrl: 'https://openrouter.ai/api/v1', model: 'openrouter/free' },
   siliconcloud: { baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
@@ -31,9 +35,16 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
           <label class="ai-check"><input type="checkbox" id="ai-web" />检索网页</label>
           <button class="ai-btn" id="ai-savecfg" type="button">保存配置</button>
         </div>
-        <div class="ai-panel__privacy">云端模型会接收问题、最近 6 轮问答及检索片段；未保存的编辑内容不参与检索。会话仅保存在本机，按工作区隔离。</div>
+        <div class="ai-panel__privacy">云端模型会接收问题、最近 6 轮问答及本轮资料。未保存内容仅在明确勾选后发送，引用快照片段随问答保存在本机，不会写回原文件。</div>
       </div>
       <div class="ai-panel__hint" id="ai-workspace-hint"></div>
+      <div class="ai-scope-row">
+        <label for="ai-scope">范围</label>
+        <select class="ai-select" id="ai-scope" aria-label="问答范围">
+          <option value="workspace">工作区文档</option><option value="document">当前文档</option><option value="selection">当前选区</option>
+        </select>
+        <label class="ai-check" id="ai-unsaved-label" hidden><input type="checkbox" id="ai-unsaved" />包含未保存内容</label>
+      </div>
       <div id="ai-rag-status"></div>
       <div class="ai-panel__messages" id="ai-messages" role="log" aria-label="问答记录"></div>
       <div class="ai-panel__status" id="ai-status" role="status" aria-live="polite"></div>
@@ -59,6 +70,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
   const saveButton = el<HTMLButtonElement>('ai-savecfg')
   const configToggle = el<HTMLButtonElement>('ai-config-toggle')
   const configBody = el('ai-config-body')
+  const scope = el<HTMLSelectElement>('ai-scope')
+  const unsaved = el<HTMLInputElement>('ai-unsaved')
   let workspace: string | null = null
   let turns: AiTurn[] = []
   let busy = false
@@ -71,13 +84,25 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
     return { provider: provider.value as AiConfig['provider'], model: model.value.trim(), apiKey: apiKey.value.trim(),
       baseUrl: baseUrl.value.trim(), useLocal: local.checked, useWeb: web.checked }
   }
-  function addMessage(role: 'user' | 'ai', text: string): HTMLElement {
+  function openSource(source: AiSource): void {
+    void (async () => {
+      if (source.type === 'context') { await deps.revealContext(source); return }
+      const result = source.type === 'local' && source.path
+        ? await window.api.openLocalFile(source.path, source)
+        : source.url && /^https?:\/\//i.test(source.url) ? await window.api.openExternal(source.url) : null
+      if (result && !result.ok) status.textContent = result.error
+    })().catch(error => { status.textContent = error instanceof Error ? error.message : '打开引用失败' })
+  }
+  function answerBody(target: HTMLElement, text: string, sources: AiSource[]): void {
+    renderAnswer(target, text, { sources, open: openSource })
+  }
+  function addMessage(role: 'user' | 'ai', text: string, sources: AiSource[] = []): HTMLElement {
     const div = document.createElement('div')
     div.className = 'ai-msg ai-msg--' + role
     if (role === 'ai') {
       const body = document.createElement('div')
       body.className = 'ai-answer'
-      renderAnswer(body, text)
+      answerBody(body, text, sources)
       div.appendChild(body)
     } else div.textContent = text
     messages.appendChild(div)
@@ -95,16 +120,9 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       const button = document.createElement('button')
       button.type = 'button'
       button.className = 'ai-source-item'
-      button.textContent = `[${source.id}] ${source.title}`
+      button.textContent = `[${source.id}] ${source.title}${source.heading ? ' · ' + source.heading : ''}${source.startLine ? ' · L' + source.startLine + '–' + source.endLine : ''}${source.type === 'context' ? source.dirty ? ' · 未保存快照' : ' · 编辑快照' : ''}`
       button.title = source.snippet
-      button.addEventListener('click', () => {
-        void (async () => {
-          const result = source.type === 'local' && source.path
-            ? await window.api.openLocalFile(source.path)
-            : source.url && /^https?:\/\//i.test(source.url) ? await window.api.openExternal(source.url) : null
-          if (result && !result.ok) status.textContent = result.error
-        })().catch(() => { status.textContent = '打开来源失败' })
-      })
+      button.addEventListener('click', () => openSource(source))
       details.appendChild(button)
       const snippet = document.createElement('div')
       snippet.className = 'ai-source-item__snip'
@@ -115,13 +133,15 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
   }
   function renderTurn(turn: AiTurn): void {
     addMessage('user', turn.question)
-    renderSources(addMessage('ai', turn.answer), turn.sources)
+    renderSources(addMessage('ai', turn.answer, turn.sources), turn.sources)
   }
   function setBusy(value: boolean): void {
     busy = value
     sendButton.disabled = value || !initialized
     stopButton.hidden = !value
     clearButton.disabled = value
+    scope.disabled = value
+    unsaved.disabled = value
     stopButton.disabled = false
     sendButton.textContent = value ? '思考中…' : '发送'
   }
@@ -143,6 +163,11 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
     const open = configBody.style.display === 'none'
     configBody.style.display = open ? 'flex' : 'none'
     configToggle.setAttribute('aria-expanded', String(open))
+  })
+  scope.addEventListener('change', () => {
+    unsaved.checked = false
+    el('ai-unsaved-label').hidden = scope.value === 'workspace'
+    status.textContent = scope.value === 'selection' ? '发送时读取编辑器选区；本轮只使用选区和可选网页资料。' : scope.value === 'document' ? '本轮只使用当前文档和可选网页资料。' : ''
   })
   provider.addEventListener('change', () => {
     const defaults = DEFAULTS[provider.value as AiConfig['provider']]
@@ -190,7 +215,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       renderTimer = undefined
       if (!answerMessage) return
       const follow = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80
-      renderAnswer(answerMessage.querySelector<HTMLElement>('.ai-answer')!, partial)
+      answerBody(answerMessage.querySelector<HTMLElement>('.ai-answer')!, partial, sources)
       if (follow) messages.scrollTop = messages.scrollHeight
     }
     const markIncomplete = (label: string): void => {
@@ -213,6 +238,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       }
       if (current !== generation) return
       requestWorkspace = workspace
+      const context = scope.value === 'workspace' ? undefined : await deps.getContext(scope.value as 'document' | 'selection', unsaved.checked)
+      if (current !== generation) return
       question.value = ''
       userMessage = addMessage('user', text)
       status.textContent = '正在检索资料并生成回答…'
@@ -229,7 +256,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
           if (renderTimer === undefined) renderTimer = window.setTimeout(paint, 50)
         }
       })
-      const result = await window.api.aiQuery({ ...config(), requestId, question: text, history: turns.slice(-6) })
+      const result = await window.api.aiQuery({ ...config(), useLocal: scope.value === 'workspace' && local.checked,
+        context, requestId, question: text, history: turns.slice(-6) })
       if (current !== generation) return
       if (!result.ok) {
         markIncomplete('生成失败')
@@ -241,8 +269,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       const turn: AiTurn = { question: text, answer: data.answer, sources: data.sources }
       turns.push(turn)
       turns = turns.slice(-30)
-      if (!answerMessage) answerMessage = addMessage('ai', data.answer)
-      else renderAnswer(answerMessage.querySelector<HTMLElement>('.ai-answer')!, data.answer)
+      if (!answerMessage) answerMessage = addMessage('ai', data.answer, data.sources)
+      else answerBody(answerMessage.querySelector<HTMLElement>('.ai-answer')!, data.answer, data.sources)
       renderSources(answerMessage, data.sources)
       ragStatus.setOutcome(data)
       const saved = saveSession(workspace, turns)
@@ -251,11 +279,11 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
         ...data.notices, saved ? '' : '会话保存失败，本次仍可继续问答'
       ].filter(Boolean).join(' · ')
       if (data.retrievalQuery !== text) status.title = '本轮检索问题：' + data.retrievalQuery
-    } catch {
+    } catch (error) {
       if (current === generation) {
         markIncomplete('连接中断')
         question.value = text
-        status.textContent = '请求失败，请检查模型配置后重试'
+        status.textContent = error instanceof Error ? error.message : '请求失败，请检查模型配置后重试'
       }
     } finally {
       unsubscribe?.()

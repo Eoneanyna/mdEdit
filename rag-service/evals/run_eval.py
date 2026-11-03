@@ -34,12 +34,23 @@ def evaluate(base: str, questions: list[dict], mode: str, top_k: int, search_fn=
     reciprocal_ranks: list[float] = []
     top1_ok = 0
     misses: list[dict] = []
+    positives = 0
+    negatives = 0
+    empty_negatives = 0
 
     for item in questions:
         data = search_fn(item['q'], mode, top_k) if search_fn else post(
             base, "/search", {"query": item["q"], "top_k": top_k, "method": mode, "workspace": workspace})
         results = data.get("results", [])
         rels = [r["rel"] for r in results]
+        if not item['expect']:
+            negatives += 1
+            if not results:
+                empty_negatives += 1
+            else:
+                misses.append({'id': item['id'], 'q': item['q'], 'expect': [], 'got': rels[:top_k]})
+            continue
+        positives += 1
         rank = next(
             (i + 1 for i, rel in enumerate(rels) if any(rel.startswith(e) for e in item["expect"])),
             None,
@@ -57,9 +68,12 @@ def evaluate(base: str, questions: list[dict], mode: str, top_k: int, search_fn=
     return {
         "mode": mode,
         "n": n,
-        "recall@k": round(hits / n, 4) if n else 0.0,
-        "mrr": round(sum(reciprocal_ranks) / n, 4) if n else 0.0,
-        "p@1": round(top1_ok / n, 4) if n else 0.0,
+        "answerable_retrieval_cases": positives,
+        "negative_retrieval_cases": negatives,
+        "recall@k": round(hits / positives, 4) if positives else None,
+        "mrr": round(sum(reciprocal_ranks) / positives, 4) if positives else None,
+        "p@1": round(top1_ok / positives, 4) if positives else None,
+        "negative_empty_rate": round(empty_negatives / negatives, 4) if negatives else None,
         "misses": misses,
     }
 
@@ -68,11 +82,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--top-k", type=int)
     ap.add_argument("--base", default="http://127.0.0.1:8765")
+    ap.add_argument('--dataset', default='evals/dataset.json', help='相对 rag-service 的评测集路径')
     ap.add_argument("--in-process", action="store_true", help="独立进程内评测，不切换正在使用的服务索引")
     ap.add_argument("--embedder", choices=['auto', 'semantic', 'hash'], default='auto', help="进程内评测嵌入器；semantic 加载失败会直接报错")
     args = ap.parse_args()
 
-    dataset = json.loads((ROOT / "evals" / "dataset.json").read_text("utf-8"))
+    dataset = json.loads((ROOT / args.dataset).read_text("utf-8"))
     questions = dataset["questions"]
     top_k = args.top_k if args.top_k is not None else dataset["meta"].get("top_k", 5)
     if top_k < 1:
@@ -101,16 +116,17 @@ def main() -> None:
     for mode in MODES:
         r = evaluate(args.base, questions, mode, top_k, search_fn=search_fn, workspace=corpus)
         rows.append(r)
-        print(f"[{mode:7s}] Recall@{top_k}={r['recall@k']:.3f}  MRR={r['mrr']:.3f}  P@1={r['p@1']:.3f}")
+        print(f"[{mode:7s}] Recall@{top_k}={r['recall@k']}  MRR={r['mrr']}  P@1={r['p@1']}  NegativeEmpty={r['negative_empty_rate']}")
 
     print()
-    print(f"| 模式 | Recall@{top_k} | MRR | P@1 |")
-    print("|---|---|---|---|")
+    print(f"| 模式 | Recall@{top_k} | MRR | P@1 | 负例空结果率 |")
+    print("|---|---|---|---|---|")
     for r in rows:
-        print(f"| {r['mode']} | {r['recall@k']:.3f} | {r['mrr']:.3f} | {r['p@1']:.3f} |")
+        values = ['—' if r[key] is None else f'{r[key]:.4f}' for key in ['recall@k', 'mrr', 'p@1', 'negative_empty_rate']]
+        print('| ' + r['mode'] + ' | ' + ' | '.join(values) + ' |')
 
     out = ROOT / "evals" / f"results-{time.strftime('%Y%m%d-%H%M%S')}.json"
-    out.write_text(json.dumps({"health": health, "rows": rows}, ensure_ascii=False, indent=2), "utf-8")
+    out.write_text(json.dumps({"dataset": args.dataset, "health": health, "rows": rows}, ensure_ascii=False, indent=2), "utf-8")
     print(f"\n明细已存: {out}")
 
     for r in rows:

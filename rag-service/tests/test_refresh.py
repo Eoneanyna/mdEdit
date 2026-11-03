@@ -92,6 +92,33 @@ class RefreshTests(unittest.TestCase):
         self.assertFalse(main.health()['building'])
         self.assertEqual(main.health()['completed'], 1)
 
+    def test_source_lines_match_exact_original_excerpt_and_fences(self):
+        content = '# 项目\n\n负责人：林知远\n\n## 实施\n\n~~~text\n# 代码中的标题\n~~~\n实施日期待定。\n'
+        (self.root / '项目.md').write_bytes(content.replace('\n', '\r\n').encode('utf-8'))
+        chunks = ingest(str(self.root))
+        self.assertEqual(len(chunks), 2)
+        lines = content.splitlines()
+        for chunk in chunks:
+            self.assertIn(chunk.text, '\n'.join(lines[chunk.start_line - 1:chunk.end_line]))
+        self.assertEqual(chunks[0].start_line, 3)
+        self.assertNotIn('代码中的标题', chunks[1].title)
+        main.build_index(main.IndexRequest(workspace=str(self.root)))
+        results = main.search(main.SearchRequest(query='负责人', workspace=str(self.root)))['results']
+        self.assertEqual(results[0]['start_line'], 3)
+
+    def test_single_incidental_token_does_not_establish_relevance(self):
+        (self.root / '休假.md').write_text('申请产假可以休假三个月。', encoding='utf-8')
+        main.build_index(main.IndexRequest(workspace=str(self.root)))
+        self.assertEqual(self.index.search('蓝鲸的妊娠周期有几个月'), [])
+
+    def test_negative_evaluation_uses_separate_denominators(self):
+        from evals.run_eval import evaluate
+        rows = [{'id': 1, 'q': 'positive', 'expect': ['a.md']}, {'id': 2, 'q': 'negative', 'expect': []}]
+        report = evaluate('', rows, 'hybrid', 5,
+                          search_fn=lambda q, mode, k: {'results': [{'rel': 'a.md'}] if q == 'positive' else []})
+        self.assertEqual(report['recall@k'], 1)
+        self.assertEqual(report['negative_empty_rate'], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

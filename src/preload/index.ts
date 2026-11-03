@@ -4,6 +4,7 @@ import {
   type AiQueryRequest,
   type AiQueryResponse,
   type AiQueryEvent,
+  type AiSource,
   type RagStatus,
   type ExternalApp,
   type FileEntry,
@@ -88,7 +89,7 @@ const api: RendererApi = {
 
   takePendingFile: (): Promise<string | null> => ipcRenderer.invoke('app:take-pending-file'),
 
-  onOpenFile: (handler: (filePath: string) => void): (() => void) =>
+  onOpenFile: (handler: (filePath: string, source?: AiSource) => void): (() => void) =>
     subscribe('app:open-file', handler),
 
   getAutoSave: (): Promise<boolean> => ipcRenderer.invoke('app:get-autosave'),
@@ -135,7 +136,7 @@ const api: RendererApi = {
   onAiEvent: (handler: (event: AiQueryEvent) => void): (() => void) => subscribe('ai:event', handler),
   getRagStatus: (): Promise<RagStatus> => ipcRenderer.invoke('ai:rag-status'),
   getWorkspacePath: (): Promise<string | null> => ipcRenderer.invoke('workspace:get-last'),
-  openLocalFile: (filePath: string): Promise<Result<null>> => ipcRenderer.invoke('ai:open-local', filePath),
+  openLocalFile: (filePath: string, source?: AiSource): Promise<Result<null>> => ipcRenderer.invoke('ai:open-local', filePath, source),
   openExternal: (url: string): Promise<Result<null>> => ipcRenderer.invoke('external:open-url', url)
 }
 

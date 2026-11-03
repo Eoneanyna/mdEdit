@@ -5,6 +5,8 @@ import { remarkGFMPlugin } from '@milkdown/kit/preset/gfm'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { replaceAll } from '@milkdown/kit/utils'
 import { displayWidth } from './display-width'
+import type { AiSource } from '@shared/ipc'
+import { revealCitation, type CitationMatch } from './citation'
 import {
   clearSearch,
   moveMatch,
@@ -39,6 +41,8 @@ export interface EditorSearch {
 export interface EditorHandle {
   /** 取当前文档的 Markdown 源码 */
   getMarkdown: () => string
+  getSelection: () => { text: string; from: number; to: number }
+  revealSource: (source: AiSource) => CitationMatch
   /** 查找替换 */
   search: EditorSearch
   /** 整篇替换内容,用于切换文件 */
@@ -55,7 +59,7 @@ export interface EditorHandle {
  * 创建所见即所得编辑器。
  *
  * 关闭的特性:
- * - AI:依赖远程模型服务,本项目明确不联网
+ * - 内置 AI:由本项目独立的知识库问答面板替代
  * - Latex:公式渲染属于第二层功能,留到后续里程碑再开
  */
 export async function createEditor(
@@ -99,6 +103,11 @@ export async function createEditor(
 
   return {
     getMarkdown: () => normalizeTail(crepe.getMarkdown()),
+    getSelection: () => withView(view => {
+      const { from, to } = view.state.selection
+      return { from, to, text: view.state.doc.textBetween(from, to, '\n') }
+    }),
+    revealSource: source => withView(view => revealCitation(view, normalizeTail(crepe.getMarkdown()), source)),
 
     search: {
       setQuery: (query) => withView((view) => setQuery(view, query)),

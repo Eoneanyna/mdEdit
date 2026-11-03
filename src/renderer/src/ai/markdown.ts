@@ -2,11 +2,12 @@ import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import type { Nodes } from 'mdast'
+import type { AiSource } from '@shared/ipc'
 
 const parser = unified().use(remarkParse).use(remarkGfm)
 
 /** 从 Markdown AST 创建 DOM，不执行原始 HTML，不自动加载远程图片。 */
-export function renderAnswer(target: HTMLElement, markdown: string): void {
+export function renderAnswer(target: HTMLElement, markdown: string, citations?: { sources: AiSource[]; open: (source: AiSource) => void }): void {
   function append(parent: Node, node: Nodes): void {
     const element = (tag: string): HTMLElement => {
       const child = document.createElement(tag)
@@ -18,7 +19,23 @@ export function renderAnswer(target: HTMLElement, markdown: string): void {
     }
     switch (node.type) {
       case 'root': children(parent); break
-      case 'text': parent.appendChild(document.createTextNode(node.value)); break
+      case 'text': {
+        if (!citations || parent instanceof Element && parent.closest('a')) { parent.appendChild(document.createTextNode(node.value)); break }
+        let cursor = 0
+        for (const match of node.value.matchAll(/\[(\d+)\]/g)) {
+          const source = citations.sources.find(s => s.id === Number(match[1]))
+          if (!source) continue
+          parent.appendChild(document.createTextNode(node.value.slice(cursor, match.index)))
+          const button = document.createElement('button')
+          button.type = 'button'; button.className = 'ai-citation-link'; button.textContent = match[0]
+          button.title = '查看引用：' + source.title
+          button.addEventListener('click', () => citations.open(source))
+          parent.appendChild(button)
+          cursor = match.index! + match[0].length
+        }
+        parent.appendChild(document.createTextNode(node.value.slice(cursor)))
+        break
+      }
       case 'paragraph': children(element('p')); break
       case 'heading': children(element('h' + node.depth)); break
       case 'strong': children(element('strong')); break

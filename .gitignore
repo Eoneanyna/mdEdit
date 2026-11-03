@@ -16,6 +16,7 @@ rag-service/.venv/
 rag-service/__pycache__/
 rag-service/app/__pycache__/
 rag-service/tests/__pycache__/
+rag-service/evals/__pycache__/
 rag-service/evals/results-*.json
 rag-service/smoke_test.py
 

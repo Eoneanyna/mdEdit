@@ -13,6 +13,7 @@ from .ingest import Chunk, ingest
 
 BM25_WEIGHT = 0.5
 VEC_WEIGHT = 0.5
+MIN_SEMANTIC_SIMILARITY = 0.45
 
 _QUERY_STOP = re.compile(r"\s+")
 
@@ -107,19 +108,25 @@ class SearchIndex:
         else:
             fused = BM25_WEIGHT * bm25_norm + VEC_WEIGHT * vec_norm
         order = np.argsort(-fused)[:top_k]
+        from .tokenizer import tokenize
+        # 单字和常见问句词不作为独立的主题证据，避免“C”“个月”等偶然重叠。
+        stop = {'什么', '多少', '怎么', '如何', '几个', '个月', '几天', '哪些', '是否', '这个', '那个', '请问', '可以', 'the', 'is', 'are', 'what', 'how'}
+        terms = {token for token in tokenize(query) if len(token) > 1 and token not in stop}
         hits: list[SearchHit] = []
         for i in order:
             s = float(fused[i])
             # 余弦映射到 [0,1] 后，完全不相似也有 0.5；不能仅凭融合分数判定相关。
-            lexical = float(bm25_scores[i]) > 0
-            semantic = self.embedder is not None and getattr(self.embedder, 'name', '') != 'hash' and float(vec_norm[i]) >= 0.675
+            chunk_terms = set(self.bm25.doc_tfs[int(i)])
+            lexical = bool(terms & chunk_terms)
+            semantic = self.embedder is not None and getattr(self.embedder, 'name', '') != 'hash' and float(vec_norm[i]) >= (MIN_SEMANTIC_SIMILARITY + 1) / 2
             relevant = lexical if method == 'bm25' else semantic or (lexical and method != 'vector')
             if method == 'vector' and getattr(self.embedder, 'name', '') == 'hash':
                 relevant = lexical
             if s <= 0.0 or not relevant:
                 continue
             c = self.chunks[int(i)]
-            hits.append(SearchHit(chunk=c, score=round(s, 4), snippet=make_snippet(c.text, query, width=1000)))
+            # 返回原文块，保留换行及 Markdown，供引用定位和行号核验。
+            hits.append(SearchHit(chunk=c, score=round(s, 4), snippet=c.text))
         return hits
 
 

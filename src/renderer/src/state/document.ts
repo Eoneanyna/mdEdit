@@ -43,7 +43,8 @@ export class DocumentState {
   }
 
   get dirty(): boolean {
-    return this.#dirty
+    // 编辑器变更通知可能延迟；发送上下文、切换文件等操作必须读取即时状态。
+    return this.editor.getMarkdown() !== this.#savedContent
   }
 
   subscribe(listener: DocumentListener): void {

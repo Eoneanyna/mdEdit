@@ -34,6 +34,8 @@ set HF_ENDPOINT=https://hf-mirror.com
 
 客户端的 `/search` 请求携带 `workspace`，服务端在同一把锁内核对工作区、刷新索引并查询，防止不同窗口或评测切换工作区后串用旧索引。未传工作区时搜索当前索引，用于兼容评测脚本。
 
+检索结果保留原始 Markdown 片段，附带 `title/start_line/end_line`（行号从 1 开始）。切块忽略代码围栏内的标题标记，兼容 UTF-8 BOM/CRLF；编辑器根据片段、标题和行号定位，旧文档变化不会被默认为精确匹配。
+
 `/health` 的 `building/phase/completed/total/error` 用于状态展示。向量按 64 个块分批构建并上报进度；指纹检查、模型加载和文档扫描阶段没有伪造的百分比。新索引构建完成后才替换旧索引。
 
 默认服务地址为 `http://127.0.0.1:8765`，Electron 主进程可通过环境变量 `MDEDIT_RAG_URL` 指定其他地址。设置 `MDEDIT_EMBEDDER=hash` 可在测试时跳过语义模型加载。仅监听本机回环地址，不要暴露到公网。
@@ -67,6 +69,14 @@ set HF_ENDPOINT=https://hf-mirror.com
 ```
 
 `semantic` 模式要求语义模型可用，加载失败直接报错，不会静默降级污染实验结果。`--embedder hash` 可测试无模型环境；`--top-k` 可覆盖数据集默认值。
+
+无关问题检索评测：
+
+```bash
+.venv/Scripts/python evals/run_eval.py --in-process --embedder semantic --dataset evals/negative-dataset.json
+```
+
+该集 12 题，`expect: []` 表示期望检索为空，单独报告 `negative_empty_rate`，不混入正例 Recall/MRR 分母。这是检索误召回指标，不等价于最终答案拒答率。答案级 6 项合成边界用例在 `evals/grounding-cases.json`，根目录 `scripts/ai-grounding-eval.cjs --offline` 验证零资料拒答；不带参数时从标准输入读取 OpenRouter Key 做真实答案规则检查，并保留答案供人工核验。
 
 输出 bm25 / vector / hybrid 三模式对比表(Recall@k、MRR、P@1),明细落 `evals/results-*.json`。
 语料在 `evals/corpus/`,数据集在 `evals/dataset.json`。

@@ -10,10 +10,14 @@ export function loadSession(workspace: string | null): AiTurn[] {
     return data.filter((t): t is AiTurn =>
       t && typeof t.question === 'string' && typeof t.answer === 'string' &&
       Array.isArray(t.sources) && t.sources.every((s: any) =>
-        s && typeof s.id === 'number' && ['local', 'web'].includes(s.type) &&
+        s && typeof s.id === 'number' && ['local', 'web', 'context'].includes(s.type) &&
         typeof s.title === 'string' && typeof s.snippet === 'string' &&
         (s.path === undefined || typeof s.path === 'string') &&
-        (s.url === undefined || typeof s.url === 'string')
+        (s.url === undefined || typeof s.url === 'string') &&
+        (s.startLine === undefined || Number.isInteger(s.startLine) && s.startLine >= 1) &&
+        (s.endLine === undefined || Number.isInteger(s.endLine) && s.endLine >= (s.startLine || 1)) &&
+        (s.heading === undefined || typeof s.heading === 'string') &&
+        (s.documentHash === undefined || typeof s.documentHash === 'string')
       )
     ).slice(-MAX_SAVED_TURNS)
   } catch { return [] }
