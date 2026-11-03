@@ -34,6 +34,27 @@ it('explicit notes mode refuses unsupported answers even if local retrieval was 
   expect(result.answer).toContain('无法根据文档回答')
   expect(callOpenAICompat).not.toHaveBeenCalled()
 })
+it('jointly selects current document and online evidence and tells the model which ids are web', async () => {
+  vi.mocked(ragSearch).mockResolvedValue([{ path: '/docs/note.md', rel: 'note.md', snippet: 'RAG 是学习主题', score: 1 }])
+  vi.mocked(searchWeb).mockResolvedValue([{ title: 'RAG 定义', url: 'https://example.com/rag', description: '检索增强生成', webKind: 'page' }])
+  vi.mocked(callOpenAICompat).mockResolvedValue('笔记主题为 RAG [1]，网页定义为检索增强生成 [2]')
+  const result = await queryAi({ ...req, mode: 'notes-web', question: 'RAG', history: [] }, '/docs')
+  expect(result.sources.map(s => s.type)).toEqual(['local', 'web'])
+  expect(result.webSearch).toMatchObject({ state: 'success', selected: 1, pages: 1 })
+  expect(vi.mocked(callOpenAICompat).mock.calls[0][2]).toContain('本轮网页引用编号：2')
+  expect(vi.mocked(callOpenAICompat).mock.calls[0][1]).toContain('网页获取时间不是发布日期')
+})
+it('passes explicit search-failure status to the answer instead of claiming no search happened', async () => {
+  vi.mocked(ragSearch).mockResolvedValue([{ path: '/docs/note.md', rel: 'note.md', snippet: 'RAG 笔记', score: 1 }])
+  vi.mocked(searchWeb).mockImplementation(async (_q, _limit, _signal, report) => {
+    report?.({ state: 'unavailable', query: 'RAG', candidates: 0, selected: 0, pages: 0, summaries: 0, attempts: [{ engine: 'Bing', outcome: 'error' }] }); return []
+  })
+  vi.mocked(callOpenAICompat).mockResolvedValue('联网失败，本轮只参考笔记 [1]')
+  const result = await queryAi({ ...req, mode: 'notes-web', question: 'RAG', history: [] }, '/docs')
+  expect(result.webSearch?.state).toBe('unavailable')
+  expect(result.notices.join('')).toContain('联网搜索失败')
+  expect(vi.mocked(callOpenAICompat).mock.calls[0][2]).toContain('"state":"unavailable"')
+})
 describe('retrieval augmented follow-ups', () => {
   it('rewrites follow-ups and generates using fresh numbered evidence and history', async () => {
     vi.mocked(callOpenAICompat).mockResolvedValueOnce('青岚项目负责人是谁').mockResolvedValueOnce('林知远 [1]')

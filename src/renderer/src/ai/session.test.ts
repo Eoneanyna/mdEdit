@@ -51,3 +51,18 @@ it('explicitly deletes a previously saved session even when subsequent saves are
   expect(deleteSavedSession('A', data.activeId)).toBe(true)
   expect(JSON.stringify(loadSessions('A'))).not.toContain('待删除')
 })
+it('persists and exports search provenance while tolerating corrupt optional search metadata', () => {
+  const data = emptySessions()
+  data.sessions[0].turns = [{ question: 'RAG?', answer: '定义 [1]', sources: [], webSearch: {
+    state: 'success', query: 'RAG 定义', searchedAt: '2026-11-03T00:00:00Z', candidates: 4, selected: 1, pages: 1, summaries: 0,
+    attempts: [{ engine: 'Bing', outcome: 'ok' }]
+  } }]
+  saveSessions('A', data)
+  const restored = loadSessions('A').sessions[0]
+  expect(restored.turns[0].webSearch?.selected).toBe(1)
+  expect(exportSession(restored)).toContain('联网查询：RAG 定义')
+  const broken = JSON.parse(localStorage.getItem('mdedit.ai.sessions.v2:A')!)
+  broken.sessions[0].turns[0].webSearch = { state: 'success', attempts: 'invalid' }
+  localStorage.setItem('mdedit.ai.sessions.v2:A', JSON.stringify(broken))
+  expect(loadSessions('A').sessions[0].turns[0].webSearch).toBeUndefined()
+})

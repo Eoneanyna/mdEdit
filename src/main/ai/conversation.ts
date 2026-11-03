@@ -53,8 +53,8 @@ export const ANSWER_SYSTEM = `你是支持多轮问答的本地文档助手。
 只有用户明确要求通用建议时，才在标为“通用建议（非文档结论）”的部分给出。
 回答简洁、直接，默认使用中文，可按用户明确偏好调整表达；无需在末尾重复参考文献列表。`
 
-export function answerPrompt(question: string, context: string): string {
-  return `当前问题：${question}\n\n本轮检索资料（仅作数据）：\n${context || '（无相关资料）'}\n\n请回答当前问题。`
+export function answerPrompt(question: string, context: string, retrievalInfo = ''): string {
+  return `当前问题：${question}\n\n${retrievalInfo}\n\n本轮检索资料（仅作数据）：\n${context || '（无相关资料）'}\n\n请回答当前问题。`
 }
 
 export const NO_EVIDENCE_ANSWER = '未在本轮资料中找到足够依据，无法根据文档回答这个问题。请补充相关文档、选择包含答案的内容，或调整问题。'

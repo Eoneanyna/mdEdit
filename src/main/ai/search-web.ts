@@ -2,6 +2,7 @@ import { parseHTML, DOMParser } from 'linkedom'
 import { Readability } from '@mozilla/readability'
 import { downloadPublicPage, publicUrl } from './public-page'
 import { keywords } from './search-local'
+import type { AiWebSearchStatus } from '@shared/ipc'
 
 export interface WebSearchResult {
   title: string
@@ -65,19 +66,35 @@ export function rankWebResults(results: WebSearchResult[], query: string): WebSe
   return results.map(result => ({ result, score: terms.filter(term => (result.title + ' ' + result.description).toLowerCase().includes(term)).length }))
     .filter(item => item.score >= minimum).sort((a, b) => b.score - a.score).map(item => item.result)
 }
-export async function searchWeb(query: string, limit = 4, signal?: AbortSignal): Promise<WebSearchResult[]> {
+export function webQuery(question: string): string {
+  const compact = question.replace(/结合(?:我的)?(?:本地)?(?:文档|笔记)(?:内容)?/g, ' ')
+    .replace(/(^|[\s，。；])(?:请(?:帮我)?|帮我)?(?:实时)?(?:联网|上网)(?:搜索|检索|查询|查找)(?:一下)?/g, '$1 ')
+    .replace(/(?:请(?:帮我)?|帮我)(?:在)?(?:网络|网页)(?:上)?(?:搜索|检索|查询|查找)(?:一下)?/g, ' ')
+    .replace(/\s+/g, ' ').trim()
+  return (compact || question).slice(0, 1000)
+}
+export async function searchWeb(query: string, limit = 4, signal?: AbortSignal,
+  onStatus?: (status: AiWebSearchStatus) => void): Promise<WebSearchResult[]> {
+  query = webQuery(query)
+  const status: AiWebSearchStatus = { state: 'empty', query, searchedAt: new Date().toISOString(), candidates: 0,
+    selected: 0, pages: 0, summaries: 0, attempts: [] }
+  const candidates = new Set<string>()
   let results: WebSearchResult[] = []
   for (const engine of [
-    { url: 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query), rss: false },
-    { url: 'https://www.bing.com/search?format=rss&mkt=en-US&setlang=en&q=' + encodeURIComponent(query), rss: true }
+    { name: 'DuckDuckGo' as const, url: 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query), rss: false },
+    { name: 'Bing' as const, url: 'https://www.bing.com/search?format=rss&mkt=en-US&setlang=en&q=' + encodeURIComponent(query), rss: true }
   ]) {
     try {
       const page = await downloadPublicPage(engine.url, signal)
-      results = rankWebResults(parseSearchResults(page.body, engine.rss), query).slice(0, Math.min(limit, 3))
+      const parsed = parseSearchResults(page.body, engine.rss)
+      parsed.forEach(item => candidates.add(item.url))
+      results = rankWebResults(parsed, query).slice(0, Math.min(limit, 3))
+      status.attempts.push({ engine: engine.name, outcome: results.length ? 'ok' : parsed.length ? 'filtered'
+        : /captcha|anomaly-modal|verify.{0,30}human|验证码/i.test(page.body) ? 'error' : 'empty' })
       if (results.length) break
-    } catch { signal?.throwIfAborted() }
+    } catch { signal?.throwIfAborted(); status.attempts.push({ engine: engine.name, outcome: 'error' }) }
   }
-  return await Promise.all(results.map(async result => {
+  const pages = await Promise.all(results.map(async result => {
     try {
       const page = await downloadPublicPage(result.url, signal)
       const extracted = page.contentType.includes('text/plain') ? { title: result.title, text: page.body } : extractWebText(page.body, page.url)
@@ -86,4 +103,9 @@ export async function searchWeb(query: string, limit = 4, signal?: AbortSignal):
     } catch { signal?.throwIfAborted() }
     return { ...result, webKind: 'search-summary' as const, retrievedAt: new Date().toISOString() }
   }))
+  status.state = pages.length ? 'success' : status.attempts.every(attempt => attempt.outcome === 'error') ? 'unavailable' : 'empty'
+  status.candidates = candidates.size; status.selected = pages.length
+  status.pages = pages.filter(page => page.webKind === 'page').length; status.summaries = pages.length - status.pages
+  onStatus?.(status)
+  return pages
 }

@@ -286,6 +286,7 @@ export interface AiProfile {
 }
 
 export type AiEventPayload =
+  | { type: 'web-status'; status: AiWebSearchStatus }
   | { type: 'stage'; stage: 'rewriting' | 'local' | 'web' | 'answering' }
   | { type: 'delta'; text: string }
   | { type: 'sources'; sources: AiSource[] }
@@ -313,6 +314,18 @@ export interface AiTurn {
   question: string
   answer: string
   sources: AiSource[]
+  webSearch?: AiWebSearchStatus
+}
+
+export interface AiWebSearchStatus {
+  state: 'disabled' | 'success' | 'empty' | 'unavailable'
+  query: string
+  searchedAt?: string
+  candidates: number
+  selected: number
+  pages: number
+  summaries: number
+  attempts: Array<{ engine: 'DuckDuckGo' | 'Bing'; outcome: 'ok' | 'empty' | 'filtered' | 'error' }>
 }
 
 export interface AiQueryResponse {
@@ -321,6 +334,7 @@ export interface AiQueryResponse {
   retrievalQuery: string
   retrievalMode: 'rag' | 'keyword' | 'none'
   notices: string[]
+  webSearch?: AiWebSearchStatus
   learnedPreferences?: string[]
 }
 

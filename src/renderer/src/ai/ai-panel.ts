@@ -4,6 +4,7 @@ import { createProfilePanel } from './profile-panel'
 import { showPrompt } from '../ui/prompt'
 import { renderAnswer } from './markdown'
 import { createRagStatus } from './rag-status'
+import { loadAnswerMode, saveAnswerMode, webStatusLabel, type AnswerMode } from './web-status'
 
 interface AiPanelDeps {
   getWorkspace: () => Promise<string | null>
@@ -45,7 +46,6 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
         <div class="ai-panel__privacy">安装包内置轻量检索，无需 Python。选择模型并保存 Key，或连接本机 Ollama 即可开始。云端模型会接收问题、偏好、最近 6 轮问答及本轮资料。未保存内容仅在勾选后发送。会话与偏好以明文保存在本机，不会写回笔记。</div>
       </div>
       <div class="ai-session-row"><select class="ai-select" id="ai-session" aria-label="历史会话"></select><button class="ai-btn" id="ai-session-rename">改名</button><button class="ai-btn" id="ai-session-delete">删除</button><button class="ai-btn" id="ai-session-export">导出</button></div>
-      <select class="ai-select" id="ai-mode" aria-label="回答模式"><option value="notes">笔记问答（仅资料）</option><option value="notes-web">笔记 + 网页补充</option><option value="general">通用问答（模型知识）</option></select>
       <div id="ai-profile"></div>
       <div class="ai-panel__hint" id="ai-workspace-hint"></div>
       <div class="ai-scope-row">
@@ -57,6 +57,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       </div>
       <div id="ai-rag-status"></div>
       </div>
+      <select class="ai-select" id="ai-mode" aria-label="回答模式"><option value="notes">笔记问答（不联网）</option><option value="notes-web">联网搜索＋文档（每轮实时检索）</option><option value="general">通用问答（不联网）</option></select>
+      <div class="ai-panel__privacy" id="ai-mode-hint"></div>
       <div class="ai-panel__messages" id="ai-messages" role="log" aria-label="问答记录"></div>
       <div class="ai-panel__status" id="ai-status" role="status" aria-live="polite"></div>
       <div class="ai-panel__input">
@@ -162,7 +164,24 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
   }
   function renderTurn(turn: AiTurn): void {
     addMessage('user', turn.question)
-    renderSources(addMessage('ai', turn.answer, turn.sources), turn.sources)
+    const answer = addMessage('ai', turn.answer, turn.sources)
+    renderRetrieval(answer, turn.webSearch, turn.sources)
+    renderSources(answer, turn.sources)
+  }
+  function renderRetrieval(target: HTMLElement, state: AiTurn['webSearch'], sources: AiSource[]): void {
+    let badge = target.querySelector<HTMLElement>('.ai-turn-retrieval')
+    if (!badge) { badge = document.createElement('div'); badge.className = 'ai-turn-retrieval'; target.prepend(badge) }
+    badge.textContent = webStatusLabel(state, sources)
+    if (state) badge.title = '本轮联网查询：' + (state.query || '未发起') + '\n' + state.attempts.map(attempt => attempt.engine + '：' +
+      ({ ok: '找到相关结果', empty: '没有结果', filtered: '候选均不相关', error: '访问失败或受限' }[attempt.outcome])).join('\n')
+  }
+  function updateMode(persist = false): void {
+    web.checked = mode.value === 'notes-web'
+    scope.disabled = busy || mode.value === 'general'
+    el('ai-mode-hint').textContent = mode.value === 'notes-web'
+      ? '每轮联网搜索并筛选网页，与所选文档一起回答；检索问题会发送给搜索引擎。'
+      : mode.value === 'notes' ? '本轮只查文档，不联网。需要实时网络资料请选择“联网搜索＋文档”。' : '只使用模型知识，不联网、不检索文档。'
+    if (persist && !saveAnswerMode(mode.value as AnswerMode)) status.textContent = '模式已切换，但保存失败，重启后需重新选择'
   }
   function setBusy(value: boolean): void {
     busy = value
@@ -283,8 +302,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       if (path) { const result = await window.api.writeFile(path, exportSession(active)); status.textContent = result.ok ? '会话已导出' : result.error }
     } catch { status.textContent = '导出失败，请重试' }
   })() })
-  mode.addEventListener('change', () => { web.checked = mode.value === 'notes-web'; scope.disabled = mode.value === 'general' })
-  web.addEventListener('change', () => { mode.value = web.checked ? 'notes-web' : 'notes' })
+  mode.addEventListener('change', () => updateMode(true))
+  web.addEventListener('change', () => { mode.value = web.checked ? 'notes-web' : 'notes'; updateMode(true) })
   stopButton.addEventListener('click', () => {
     generation++
     stopButton.disabled = true
@@ -345,7 +364,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
           status.textContent = labels[event.stage]
           if (event.stage === 'local') void ragStatus.refresh()
         } else if (event.type === 'sources') sources = event.sources
-        else {
+        else if (event.type === 'web-status') status.textContent = webStatusLabel(event.status, sources)
+        else if (event.type === 'delta') {
           partial += event.text
           if (!answerMessage) answerMessage = addMessage('ai', '')
           if (renderTimer === undefined) renderTimer = window.setTimeout(paint, 50)
@@ -361,11 +381,12 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
         return
       }
       const data: AiQueryResponse = result.value
-      const turn: AiTurn = { question: text, answer: data.answer, sources: data.sources }
+      const turn: AiTurn = { question: text, answer: data.answer, sources: data.sources, webSearch: data.webSearch }
       turns.push(turn)
       turns = turns.slice(-30)
       if (!answerMessage) answerMessage = addMessage('ai', data.answer, data.sources)
       else answerBody(answerMessage.querySelector<HTMLElement>('.ai-answer')!, data.answer, data.sources)
+      renderRetrieval(answerMessage, data.webSearch, data.sources)
       renderSources(answerMessage, data.sources)
       ragStatus.setOutcome(data)
       const saved = persistCurrent()
@@ -411,7 +432,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       baseUrl.value = cfg.baseUrl
       local.checked = cfg.useLocal
       web.checked = cfg.useWeb
-      mode.value = cfg.useWeb ? 'notes-web' : 'notes'
+      mode.value = loadAnswerMode(cfg.useWeb)
+      updateMode()
       syncWorkspace(ws)
       if (!cfg.model || (!cfg.apiKey && ['openrouter', 'siliconcloud'].includes(cfg.provider))) {
         configBody.style.display = 'flex'

@@ -36,7 +36,7 @@ test.beforeEach(async () => {
       if (modelStatus !== 200) { res.writeHead(modelStatus); res.end('secret-upstream-body'); return }
       const prompt = data.messages.at(-1).content
       const rewriting = data.messages[0].content.includes('改写器')
-      const answer = rewriting ? '青岚项目负责人是谁' : prompt.includes('陈小川') ? '负责人：陈小川 [1]' : '负责人：林知远 [1]'
+      const answer = rewriting ? '青岚项目负责人是谁' : prompt.includes('外部网页（正文）') ? '笔记中的学习主题是 RAG [1]；根据联网网页，RAG 是检索增强生成 [2]。' : prompt.includes('陈小川') ? '负责人：陈小川 [1]' : '负责人：林知远 [1]'
       if (streaming && data.stream && !rewriting) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         res.write(': processing\n\n')
@@ -77,6 +77,68 @@ async function configure(workspace: string): Promise<void> {
   })
   await expect(win.locator('#ai-send')).toBeEnabled()
 }
+
+// 只在测试进程内替换公共 HTTP 传输层；保留真实的搜索解析、正文提取、联合筛选与 IPC。
+async function mockPublicSearch(fail = false): Promise<void> {
+  await harness!.app.evaluate((_electron, fail) => {
+    const https = (process as any).getBuiltinModule('https')
+    const dns = (process as any).getBuiltinModule('dns/promises')
+    const { EventEmitter } = (process as any).getBuiltinModule('events')
+    dns.lookup = async () => [{ address: '1.1.1.1', family: 4 }]
+    https.request = (url: URL, _options: unknown, callback: (response: any) => void) => {
+      const request = new EventEmitter()
+      request.end = () => queueMicrotask(() => {
+        if (fail) { request.emit('error', new Error('isolated network failure')); return }
+        const response = new EventEmitter()
+        response.statusCode = 200; response.headers = { 'content-type': 'text/html' }; response.resume = () => {}
+        callback(response)
+        const body = String(url).includes('duckduckgo.com')
+          ? '<html><body><div class="result"><a class="result__a" href="https://public.example.com/rag">RAG 的定义是什么</a><span class="result__snippet">RAG 是检索增强生成，RAG 的定义和工作方式。</span></div></body></html>'
+          : '<html><head><title>RAG 的定义</title></head><body><article><h1>RAG 的定义是什么</h1><p>' + 'RAG 的定义是检索增强生成，先检索文档再生成回答。'.repeat(20) + '</p></article></body></html>'
+        queueMicrotask(() => { response.emit('data', Buffer.from(body)); response.emit('end') })
+      })
+      request.destroy = (error: Error) => request.emit('error', error)
+      return request
+    }
+  }, fail)
+}
+
+test('实时联网结果与文档联合筛选引用，联网模式及每轮状态在重启界面后保留', async () => {
+  const { win, app } = harness!
+  await configure(makeWorkspace({ '学习笔记.md': '# 青岚项目\n学习主题：RAG。负责人：林知远。' }))
+  await mockPublicSearch()
+  await win.locator('#ai-mode').selectOption('notes-web')
+  await win.locator('#ai-question').fill('RAG的定义是什么？')
+  await win.locator('#ai-send').click()
+  await expect(win.locator('.ai-msg--ai')).toContainText('根据联网网页')
+  await expect(win.locator('.ai-turn-retrieval')).toContainText('文档片段 1')
+  await expect(win.locator('.ai-turn-retrieval')).toContainText('选用 1 个网页（正文 1')
+  expect(calls.at(-1)!.messages.at(-1)!.content).toContain('本轮网页引用编号：2')
+  expect(calls.at(-1)!.messages.at(-1)!.content).toContain('学习主题：RAG')
+  expect(calls.at(-1)!.messages.at(-1)!.content).toContain('检索增强生成')
+  await win.locator('.ai-turn-sources summary').click()
+  await expect(win.locator('.ai-source-item')).toHaveCount(2)
+  await expect(win.locator('.ai-source-item').last()).toContainText('网页正文')
+  await win.reload(); await win.waitForFunction(() => !!(window as any).__actions)
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('menu:ai-toggle'))
+  await expect(win.locator('#ai-mode')).toHaveValue('notes-web')
+  await expect(win.locator('.ai-turn-retrieval')).toContainText('选用 1 个网页')
+})
+
+test('联网失败和未启用联网分别展示，不把本地片段当成网络结果', async () => {
+  const { win } = harness!
+  await configure(makeWorkspace({ '学习笔记.md': 'RAG 是学习主题，青岚项目负责人：林知远。' }))
+  await mockPublicSearch(true)
+  await win.locator('#ai-mode').selectOption('notes-web')
+  await win.locator('#ai-question').fill('RAG是什么？'); await win.locator('#ai-send').click()
+  await expect(win.locator('.ai-turn-retrieval')).toContainText('联网失败')
+  expect(calls.at(-1)!.messages.at(-1)!.content).toContain('"state":"unavailable"')
+  expect(calls.at(-1)!.messages.at(-1)!.content).toContain('本轮网页引用编号：无')
+  await win.locator('#ai-mode').selectOption('notes')
+  await win.locator('#ai-clear').click()
+  await win.locator('#ai-question').fill('RAG是什么？'); await win.locator('#ai-send').click()
+  await expect(win.locator('.ai-turn-retrieval')).toContainText('未联网（本轮未启用）')
+})
 
 test('连接测试不发送笔记历史偏好、不改会话或配置，失败时可重试', async () => {
   const { win } = harness!

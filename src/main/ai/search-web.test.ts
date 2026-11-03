@@ -2,7 +2,7 @@
 import { expect, it, vi, afterEach } from 'vitest'
 import * as network from './public-page'
 import { isPublicAddress, publicUrl } from './public-page'
-import { extractWebText, parseSearchResults, relevantWebExcerpt, searchWeb, rankWebResults } from './search-web'
+import { extractWebText, parseSearchResults, relevantWebExcerpt, searchWeb, rankWebResults, webQuery } from './search-web'
 
 afterEach(() => vi.restoreAllMocks())
 it('blocks loopback, private networks, mapped addresses and unsafe URLs', () => {
@@ -45,4 +45,21 @@ it('propagates cancellation instead of silently returning summaries', async () =
 })
 it('rejects dictionary results matching only the first word of a technical query', () => {
   expect(rankWebResults([{ title: 'retrieval dictionary', description: 'retrieve something', url: 'https://example.com' }], 'retrieval augmented generation RAG definition')).toEqual([])
+})
+it('reports network failure separately from empty and irrelevant search results', async () => {
+  const onStatus = vi.fn()
+  const downloader = vi.spyOn(network, 'downloadPublicPage').mockRejectedValue(new Error('network unavailable'))
+  expect(await searchWeb('RAG', 3, undefined, onStatus)).toEqual([])
+  expect(onStatus.mock.calls[0][0]).toMatchObject({ state: 'unavailable', selected: 0, attempts: [{ engine: 'DuckDuckGo', outcome: 'error' }, { engine: 'Bing', outcome: 'error' }] })
+  downloader.mockResolvedValue({ url: 'https://example.com', body: '<html><body>没有结果</body></html>', contentType: 'text/html' })
+  await searchWeb('RAG', 3, undefined, onStatus)
+  expect(onStatus.mock.calls[1][0].state).toBe('empty')
+  downloader.mockResolvedValue({ url: 'https://example.com', body: '<html><body>captcha anomaly-modal</body></html>', contentType: 'text/html' })
+  await searchWeb('RAG', 3, undefined, onStatus)
+  expect(onStatus.mock.calls[2][0].state).toBe('unavailable')
+})
+it('removes search directives without dropping technical terms or dates', () => {
+  expect(webQuery('请联网搜索 RAG 2026 最新进展')).toBe('RAG 2026 最新进展')
+  expect(webQuery('结合我的本地笔记 联网查询 RAG 的定义')).toBe('RAG 的定义')
+  expect(webQuery('物联网与计算机网络的安全')).toBe('物联网与计算机网络的安全')
 })
