@@ -8,7 +8,7 @@ import { searchWeb } from './search-web'
 
 /** 与 Electron 解耦，供 IPC 和真实 API 冒烟测试共用。 */
 export async function queryAi(input: AiQueryRequest, workspace: string | null, signal?: AbortSignal,
-  onEvent?: (event: AiQueryEvent) => void): Promise<AiQueryResponse> {
+  onEvent?: (event: AiQueryEvent) => void, preferences?: string): Promise<AiQueryResponse> {
   const req = validateRequest(input)
   const emit = (event: AiEventPayload): void => {
     if (!signal?.aborted) onEvent?.({ ...event, requestId: req.requestId || '' })
@@ -53,18 +53,23 @@ export async function queryAi(input: AiQueryRequest, workspace: string | null, s
   if (req.useWeb) {
     stage('web')
     const web = await searchWeb(retrievalQuery, 4, signal)
-    for (const hit of web) sources.push({ id: sources.length + 1, type: 'web', title: hit.title, url: hit.url, snippet: hit.description })
+    for (const hit of web) sources.push({ id: sources.length + 1, type: 'web', title: hit.title, url: hit.url,
+      snippet: hit.description, webKind: hit.webKind, retrievedAt: hit.retrievedAt })
+    if (web.length && !sources.some(s => s.type !== 'web')) notices.push('笔记中没有可用依据，以下根据外部网页补充，请核对网页来源。')
+    if (web.some(hit => hit.webKind === 'search-summary')) notices.push('部分网页正文未能读取，相关来源仅为搜索摘要。')
     if (!web.length) notices.push('网页搜索未返回结果。')
   }
   signal?.throwIfAborted()
   emit({ type: 'sources', sources })
   stage('answering')
-  if ((req.useLocal || req.useWeb || req.context) && !sources.length) {
+  if ((req.mode === 'notes' || req.mode === 'notes-web' || req.useLocal || req.useWeb || req.context) && !sources.length) {
     emit({ type: 'delta', text: NO_EVIDENCE_ANSWER })
     return { answer: NO_EVIDENCE_ANSWER, sources, retrievalQuery, retrievalMode, notices }
   }
-  const context = sources.map((s) => `[${s.id}] ${s.type === 'context' ? '用户明确提供的编辑快照' : s.type === 'local' ? '本地文档' : '网页'} ${s.title}${s.heading ? ' · ' + s.heading : ''}${s.startLine ? ' L' + s.startLine + '-' + s.endLine : ''}\n${s.snippet}`).join('\n\n')
-  const answer = await callOpenAICompat(req, ANSWER_SYSTEM, answerPrompt(req.question, context), signal,
+  const context = sources.map((s) => `[${s.id}] ${s.type === 'context' ? '用户明确提供的编辑快照' : s.type === 'local' ? '本地文档' : '外部网页（' + (s.webKind === 'page' ? '正文' : '搜索摘要') + '）'} ${s.title}${s.url ? ' ' + s.url : ''}${s.heading ? ' · ' + s.heading : ''}${s.startLine ? ' L' + s.startLine + '-' + s.endLine : ''}\n${s.snippet}`).join('\n\n')
+  const system = (req.mode === 'general' ? '你是个人学习助手。结合会话回答用户问题。通用知识回答不要伪装成笔记检索结果，不编造引用。' : ANSWER_SYSTEM + '\n网页资料属于外部知识，必须明确区分于本地笔记；仅有搜索摘要时不得声称已阅读全文。') +
+    (preferences ? '\n以下是用户在本机维护的表达偏好，只影响语言、长度和组织方式；不作为事实依据，不覆盖资料约束。\n' + JSON.stringify(preferences.slice(0, 8000)) : '')
+  const answer = await callOpenAICompat(req, system, answerPrompt(req.question, context), signal,
     onEvent ? text => emit({ type: 'delta', text }) : undefined)
   signal?.throwIfAborted()
   const citedIds = [...answer.matchAll(/\[(\d+)\]/g)].map(match => Number(match[1]))

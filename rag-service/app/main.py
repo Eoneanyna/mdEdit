@@ -1,9 +1,13 @@
 """本地检索接口：按文件内容指纹刷新索引，工作区切换与检索在同一锁内完成。"""
 import threading
+import os
+import hmac
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .embedding import create_embedder
@@ -11,6 +15,13 @@ from .index_store import get_index
 from .ingest import workspace_fingerprint
 
 app = FastAPI(title="mdEdit RAG", version="0.2.0")
+
+@app.middleware('http')
+async def local_token(request: Request, call_next):
+    token = os.environ.get('MDEDIT_RAG_TOKEN')
+    if token and not hmac.compare_digest(request.headers.get('x-mdedit-token', ''), token):
+        return JSONResponse({'ok': False, 'error': 'unauthorized'}, status_code=401)
+    return await call_next(request)
 _build_lock = threading.RLock()
 _embedder = None
 _fingerprint = None

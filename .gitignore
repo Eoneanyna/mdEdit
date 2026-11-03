@@ -13,6 +13,9 @@ Thumbs.db
 
 # Python RAG 服务
 rag-service/.venv/
+rag-service/.build-venv/
+build/rag-service/
+build/rag-work/
 rag-service/__pycache__/
 rag-service/app/__pycache__/
 rag-service/tests/__pycache__/

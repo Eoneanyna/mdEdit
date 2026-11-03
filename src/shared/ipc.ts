@@ -209,6 +209,12 @@ export interface RendererApi {
   cancelAiQuery: () => Promise<void>
   onAiEvent: (handler: (event: AiQueryEvent) => void) => () => void
   getRagStatus: () => Promise<RagStatus>
+  restartRag: () => Promise<Result<null>>
+  getAiProfile: () => Promise<AiProfile>
+  setAiPrivacy: (settings: AiPrivacySettings) => Promise<void>
+  saveAiPreferences: (markdown: string, revision: string) => Promise<AiProfile>
+  clearAiPreferences: () => Promise<AiProfile>
+  undoAiPreferences: () => Promise<AiProfile>
   /** 当前工作区路径,供 AI 面板展示 */
   getWorkspacePath: () => Promise<string | null>
   /** 点击来源时打开本地文件 */
@@ -233,6 +239,8 @@ export interface AiSource {
   dirty?: boolean
   selectionFrom?: number
   selectionTo?: number
+  webKind?: 'page' | 'search-summary'
+  retrievedAt?: string
 }
 
 export interface AiDocumentContext {
@@ -258,6 +266,22 @@ export interface AiQueryRequest {
   useWeb: boolean
   history?: AiTurn[]
   context?: AiDocumentContext
+  mode?: 'notes' | 'notes-web' | 'general'
+}
+
+export interface AiPrivacySettings {
+  persistHistory: boolean
+  personalize: boolean
+  autoLearn: boolean
+  localOnly: boolean
+}
+
+export interface AiProfile {
+  markdown: string
+  path: string
+  revision: string
+  privacy: AiPrivacySettings
+  canUndo: boolean
 }
 
 export type AiEventPayload =
@@ -279,6 +303,8 @@ export interface RagStatus {
   completed: number
   total: number
   error: string | null
+  managed?: boolean
+  serviceState?: 'starting' | 'running' | 'stopped' | 'unavailable' | 'external'
 }
 
 /** 只有成功完成的轮次进入后续上下文。 */
@@ -294,6 +320,7 @@ export interface AiQueryResponse {
   retrievalQuery: string
   retrievalMode: 'rag' | 'keyword' | 'none'
   notices: string[]
+  learnedPreferences?: string[]
 }
 
 export interface AiConfig {

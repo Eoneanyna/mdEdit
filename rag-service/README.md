@@ -2,7 +2,15 @@
 
 mdEdit AI 助手的检索后端:BM25 + 向量混合检索,本地运行,零云端依赖。
 
-## 快速开始(venv,推荐)
+## 安装包内置模式
+
+安装包包含独立检索程序，由 Electron 自动启动并在退出时关闭。默认 BM25 + 哈希向量，不依赖系统 Python、不联网下载模型。监听随机本机端口，每次启动生成随机访问令牌；状态面板支持重启。日志位于用户数据目录 `ai/rag-service.log`，不记录问题或文档正文。内存索引随进程退出释放。
+
+开发机运行 `npm run build:rag` 构建同平台同架构的 PyInstaller 目录；安装包命令会先构建它。可用 `MDEDIT_BUILD_PYTHON` 指定解释器；构建环境为独立 `.build-venv`，不打包 torch 或 sentence-transformers。`node scripts/test-rag-bundle.cjs` 在空 PATH 下验证独立运行、令牌及检索。
+
+## 可选语义模式（手动运行）
+
+手动启动服务后，以环境变量 `MDEDIT_RAG_URL=http://127.0.0.1:8765` 启动 mdEdit，即可替代内置服务。外部服务不由应用管理或重启。
 
 > Microsoft Store 版 Python 装 torch 会触发 WinError 206(路径过长),项目内 venv 可规避。
 

@@ -1,5 +1,6 @@
 appId: com.mdedit.app
 productName: mdEdit
+beforePack: scripts/verify-rag.cjs
 copyright: Copyright © 2026 mdEdit
 
 directories:
@@ -20,6 +21,8 @@ files:
 # Windows 用多尺寸 ico(16~48 为重绘的简化图,64 以上为原手绘图),
 # Linux 只认 png。
 extraResources:
+  - from: build/rag-service/mdedit-rag
+    to: rag-service
   - from: build/icon.ico
     to: icon.ico
   - from: build/icon.png
@@ -64,7 +67,6 @@ nsis:
 mac:
   target:
     - target: dmg
-      arch: [x64, arm64]
   category: public.app-category.productivity
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 

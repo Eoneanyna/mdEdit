@@ -3,6 +3,8 @@ import { registerIpc } from './ipc'
 import { buildAppMenu } from './menu'
 import { pickFileArg, setPendingFile } from './pending-file'
 import { createMainWindow } from './window'
+import { join } from 'node:path'
+import { configureRagProcess, stopRagProcess } from './ai/rag-process'
 
 // Windows 上任务栏分组与通知需要显式声明 AppUserModelId
 app.setAppUserModelId('com.mdedit.app')
@@ -44,6 +46,12 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.whenReady().then(() => {
+    const root = join(__dirname, '../..')
+    configureRagProcess({ executable: app.isPackaged
+      ? join(process.resourcesPath, 'rag-service', process.platform === 'win32' ? 'mdedit-rag.exe' : 'mdedit-rag')
+      : join(root, 'build/rag-service/mdedit-rag', process.platform === 'win32' ? 'mdedit-rag.exe' : 'mdedit-rag'),
+      developmentPython: app.isPackaged ? undefined : join(root, 'rag-service/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'),
+      serviceDirectory: join(root, 'rag-service'), logPath: join(app.getPath('userData'), 'ai/rag-service.log') })
     registerIpc()
     buildAppMenu()
     createMainWindow()
@@ -58,4 +66,5 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
+  app.on('will-quit', () => { void stopRagProcess() })
 }

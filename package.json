@@ -1,6 +1,6 @@
 {
   "name": "mdedit",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "本地优先的所见即所得 Markdown 编辑器",
   "main": "./out/main/index.js",
   "author": "cxy <adc.rabbit@foxmail.com>",
@@ -25,6 +25,10 @@
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "electron-vite build",
+    "build:rag": "node scripts/build-rag.cjs",
+    "prebuild:win": "npm run build:rag",
+    "prebuild:mac": "npm run build:rag",
+    "prebuild:linux": "npm run build:rag",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
@@ -49,7 +53,9 @@
   "dependencies": {
     "@milkdown/crepe": "^7.22.1",
     "@milkdown/kit": "^7.22.1",
+    "@mozilla/readability": "^0.6.0",
     "chokidar": "^5.0.0",
+    "linkedom": "^0.18.15",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5"

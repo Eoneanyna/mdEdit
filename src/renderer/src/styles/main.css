@@ -877,3 +877,14 @@ body {
 .ai-check[hidden] { display: none; }
 .ai-citation-link { display: inline; border: 0; padding: 0 2px; color: var(--accent); background: transparent; text-decoration: underline; font: inherit; cursor: pointer; }
 .ai-citation-link:focus-visible { outline: 2px solid var(--accent); border-radius: 2px; }
+.ai-panel__controls { flex-shrink: 0; max-height: 52%; overflow: auto; }
+.ai-panel__controls .ai-panel__config, .ai-panel__controls #ai-rag-status { max-height: none; }
+.ai-session-row { display: flex; gap: 4px; padding: 4px 8px; }
+.ai-session-row select { flex: 1; min-width: 0; }
+#ai-mode { margin: 4px 8px; width: calc(100% - 16px); }
+.ai-profile-panel { margin: 4px 8px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; }
+.ai-profile-panel summary { cursor: pointer; }
+.ai-profile-panel .ai-check { display: flex; margin-top: 8px; white-space: normal; }
+.ai-profile-panel .ai-panel__row { flex-wrap: wrap; }
+.ai-preferences-path { overflow-wrap: anywhere; color: var(--fg-muted); margin: 6px 0; }
+#ai-preferences-editor { width: 100%; min-height: 160px; resize: vertical; color: var(--fg); background: var(--bg); border: 1px solid var(--border); padding: 6px; font: 11px/1.5 monospace; box-sizing: border-box; }

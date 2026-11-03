@@ -16,6 +16,7 @@ export function createRagStatus(container: HTMLElement, getWorkspace: () => stri
     <div id="ai-rag-info"></div>
     <div id="ai-rag-outcome"></div>
     <button class="ai-btn" id="ai-rag-refresh" type="button">刷新状态</button>
+    <button class="ai-btn" id="ai-rag-restart" type="button" hidden>重启内置检索</button>
   </details>`
   const summary = container.querySelector<HTMLElement>('#ai-rag-summary')!
   const info = container.querySelector<HTMLElement>('#ai-rag-info')!
@@ -28,8 +29,9 @@ export function createRagStatus(container: HTMLElement, getWorkspace: () => stri
     try {
       const state = await window.api.getRagStatus()
       if (disposed) return
+      container.querySelector<HTMLButtonElement>('#ai-rag-restart')!.hidden = !state.managed
       if (!state.available) {
-        summary.textContent = '本地检索：关键词模式'
+        summary.textContent = state.serviceState === 'starting' ? '本地检索：启动中…' : '本地检索：关键词模式'
         info.textContent = state.error || 'RAG 服务未连接，提问时使用内置关键词检索。'
         return
       }
@@ -51,6 +53,13 @@ export function createRagStatus(container: HTMLElement, getWorkspace: () => stri
     } finally { refreshing = false }
   }
   container.querySelector('#ai-rag-refresh')!.addEventListener('click', () => void refresh())
+  container.querySelector('#ai-rag-restart')!.addEventListener('click', () => { void (async () => {
+    const button = container.querySelector<HTMLButtonElement>('#ai-rag-restart')!
+    button.disabled = true; info.textContent = '正在重启内置检索…'
+    try { const result = await window.api.restartRag(); if (!result.ok) throw new Error(result.error); await refresh() }
+    catch (error) { info.textContent = error instanceof Error ? error.message : '重启失败，请重试' }
+    finally { button.disabled = false }
+  })() })
   container.querySelector('details')!.addEventListener('toggle', () => void refresh())
   const timer = window.setInterval(() => {
     if (document.visibilityState !== 'hidden' && container.closest('.ai-drawer')?.classList.contains('is-open')) void refresh()

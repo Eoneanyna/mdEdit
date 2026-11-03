@@ -75,6 +75,91 @@ async function configure(workspace: string): Promise<void> {
   await expect(win.locator('#ai-send')).toBeEnabled()
 }
 
+test('个人偏好自动学习、下一轮使用、撤销及关闭学习', async () => {
+  const { win } = harness!
+  await configure(makeWorkspace({ '项目.md': '青岚项目负责人：林知远' }))
+  await win.locator('#ai-mode').selectOption('general')
+  await win.locator('#ai-question').fill('请以后简洁回答。青岚项目负责人是谁？')
+  await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-status')).toContainText('已更新个人偏好')
+  await win.locator('.ai-profile-panel summary').click()
+  await expect(win.locator('#ai-preferences-editor')).toHaveValue(/回答长度：简洁/)
+  await win.locator('#ai-question').fill('继续解释')
+  await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-send')).toBeEnabled()
+  expect(calls.at(-1)!.messages[0].content).toContain('回答长度：简洁')
+  expect(calls).toHaveLength(2) // 自动学习不调用额外模型。
+  await win.locator('#ai-preferences-undo').click()
+  await expect(win.locator('#ai-preferences-editor')).not.toHaveValue(/回答长度：简洁/)
+  await win.locator('#ai-auto-learn').uncheck()
+  await expect(win.locator('#ai-profile-status')).toHaveText('隐私设置已保存')
+  await win.locator('#ai-question').fill('以后用英文回答')
+  await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-send')).toBeEnabled()
+  expect((await win.evaluate(() => window.api.getAiProfile())).markdown).not.toContain('回答语言：英文')
+})
+
+test('多会话切换、改名、关闭保存和清除本机历史', async () => {
+  const { win, app } = harness!
+  await configure(makeWorkspace({ '项目.md': '青岚项目负责人：林知远' }))
+  await win.locator('#ai-question').fill('青岚项目负责人是谁？'); await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-send')).toBeEnabled()
+  const first = await win.locator('#ai-session').inputValue()
+  await win.locator('#ai-clear').click()
+  await expect(win.locator('.ai-msg')).toHaveCount(0)
+  await win.locator('#ai-session').selectOption(first)
+  await expect(win.locator('.ai-msg--ai')).toHaveCount(1)
+  await win.locator('#ai-session-rename').click()
+  await win.locator('.prompt__input').fill('项目问答')
+  await win.locator('[data-act="ok"]').click()
+  await expect(win.locator('#ai-session option:checked')).toHaveText('项目问答')
+  await win.locator('.ai-profile-panel summary').click()
+  await win.locator('#ai-persist-history').uncheck()
+  await expect(win.locator('#ai-profile-status')).toHaveText('隐私设置已保存')
+  const disk = await win.evaluate(() => JSON.stringify(localStorage))
+  await win.locator('#ai-question').fill('他是谁？'); await win.locator('#ai-send').click()
+  await expect(win.locator('.ai-msg--ai')).toHaveCount(2)
+  expect(await win.evaluate(() => JSON.stringify(localStorage))).toBe(disk)
+  win.once('dialog', dialog => dialog.accept())
+  await win.locator('#ai-session-delete').click()
+  expect(await win.evaluate(() => JSON.stringify(localStorage))).not.toContain('项目问答')
+  await win.reload(); await win.waitForFunction(() => !!(window as any).__actions)
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('menu:ai-toggle'))
+  await expect(win.locator('.ai-msg')).toHaveCount(0)
+  await win.locator('.ai-profile-panel summary').click()
+  win.once('dialog', dialog => dialog.accept())
+  await win.locator('#ai-history-clear-all').click()
+  expect(await win.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('mdedit.ai.session')))).toEqual([])
+})
+
+test('仅本机模式在主进程拒绝云端请求和网页搜索', async () => {
+  const { win } = harness!
+  await configure(makeWorkspace({ '项目.md': '青岚项目负责人：林知远' }))
+  await win.locator('.ai-profile-panel summary').click()
+  await win.locator('#ai-local-only').check()
+  await expect(win.locator('#ai-profile-status')).toHaveText('隐私设置已保存')
+  const result = await win.evaluate(() => window.api.aiQuery({ provider: 'custom', model: 'test', baseUrl: 'https://example.com', question: '你好', mode: 'general', useLocal: false, useWeb: false }))
+  expect(result.ok).toBe(false)
+  await win.locator('#ai-mode').selectOption('notes-web')
+  await win.locator('#ai-question').fill('RAG 的定义？'); await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-status')).toContainText('仅本机模式')
+  expect(calls).toHaveLength(0)
+})
+
+test('内置检索自动启动、建立索引和手动重启', async () => {
+  await harness!.dispose()
+  harness = await launchApp({ env: { MDEDIT_RAG_URL: '' } })
+  const { win } = harness
+  await configure(makeWorkspace({ '项目.md': '青岚项目负责人：林知远' }))
+  await expect.poll(async () => (await win.evaluate(() => window.api.getRagStatus())).serviceState).toBe('running')
+  await win.locator('#ai-question').fill('青岚项目负责人是谁？'); await win.locator('#ai-send').click()
+  await expect(win.locator('.ai-msg--ai')).toContainText('林知远')
+  const state = await win.evaluate(() => window.api.getRagStatus())
+  expect(state.managed).toBe(true); expect(state.embedder).toBe('hash'); expect(state.indexed).toBe(true)
+  expect(await win.evaluate(() => window.api.restartRag())).toEqual({ ok: true, value: null })
+  expect((await win.evaluate(() => window.api.getRagStatus())).serviceState).toBe('running')
+})
+
 test('本地多轮问答、文件更新、来源打开、会话恢复和新对话', async () => {
   const { win } = harness!
   const workspace = makeWorkspace({ '青岚项目.md': '# 青岚项目\n负责人：林知远\n' })

@@ -1,0 +1,5 @@
+# 隔离的轻量构建环境，不打入 torch 和模型权重。
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+numpy>=1.26,<3
+pyinstaller>=6,<7

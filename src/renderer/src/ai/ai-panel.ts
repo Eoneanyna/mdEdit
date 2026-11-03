@@ -1,5 +1,7 @@
 import type { AiConfig, AiDocumentContext, AiQueryResponse, AiSource, AiTurn } from '@shared/ipc'
-import { loadSession, saveSession } from './session'
+import { loadSessions, saveSessions, emptySessions, newSession, clearAllAiHistory, deleteSavedSession, exportSession, type SessionCollection } from './session'
+import { createProfilePanel } from './profile-panel'
+import { showPrompt } from '../ui/prompt'
 import { renderAnswer } from './markdown'
 import { createRagStatus } from './rag-status'
 
@@ -18,6 +20,7 @@ const DEFAULTS: Record<AiConfig['provider'], { baseUrl: string; model: string }>
 export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { workspaceChanged: (workspace: string) => void } {
   container.innerHTML = `
     <div class="ai-panel">
+      <div class="ai-panel__controls">
       <div class="ai-panel__config-header">
         <button class="ai-btn" id="ai-config-toggle" type="button" aria-expanded="false">配置</button>
         <button class="ai-btn" id="ai-clear" type="button">新对话</button>
@@ -35,8 +38,11 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
           <label class="ai-check"><input type="checkbox" id="ai-web" />检索网页</label>
           <button class="ai-btn" id="ai-savecfg" type="button">保存配置</button>
         </div>
-        <div class="ai-panel__privacy">云端模型会接收问题、最近 6 轮问答及本轮资料。未保存内容仅在明确勾选后发送，引用快照片段随问答保存在本机，不会写回原文件。</div>
+        <div class="ai-panel__privacy">安装包内置轻量检索，无需 Python。选择模型并保存 Key，或连接本机 Ollama 即可开始。云端模型会接收问题、偏好、最近 6 轮问答及本轮资料。未保存内容仅在勾选后发送。会话与偏好以明文保存在本机，不会写回笔记。</div>
       </div>
+      <div class="ai-session-row"><select class="ai-select" id="ai-session" aria-label="历史会话"></select><button class="ai-btn" id="ai-session-rename">改名</button><button class="ai-btn" id="ai-session-delete">删除</button><button class="ai-btn" id="ai-session-export">导出</button></div>
+      <select class="ai-select" id="ai-mode" aria-label="回答模式"><option value="notes">笔记问答（仅资料）</option><option value="notes-web">笔记 + 网页补充</option><option value="general">通用问答（模型知识）</option></select>
+      <div id="ai-profile"></div>
       <div class="ai-panel__hint" id="ai-workspace-hint"></div>
       <div class="ai-scope-row">
         <label for="ai-scope">范围</label>
@@ -46,6 +52,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
         <label class="ai-check" id="ai-unsaved-label" hidden><input type="checkbox" id="ai-unsaved" />包含未保存内容</label>
       </div>
       <div id="ai-rag-status"></div>
+      </div>
       <div class="ai-panel__messages" id="ai-messages" role="log" aria-label="问答记录"></div>
       <div class="ai-panel__status" id="ai-status" role="status" aria-live="polite"></div>
       <div class="ai-panel__input">
@@ -77,6 +84,21 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
   let busy = false
   let generation = 0
   let initialized = false
+  const sessionSelect = el<HTMLSelectElement>('ai-session')
+  const mode = el<HTMLSelectElement>('ai-mode')
+  let privacy = { persistHistory: false, personalize: false, autoLearn: false, localOnly: false }
+  let collection = emptySessions()
+  const memory = new Map<string | null, SessionCollection>()
+  const profilePanel = createProfilePanel(el('ai-profile'), next => {
+    if (initialized && !privacy.persistHistory && next.persistHistory) {
+      const stored = loadSessions(workspace)
+      for (const item of stored.sessions) if (item.turns.length && !collection.sessions.some(s => s.id === item.id)) collection.sessions.push(item)
+    }
+    privacy = next
+    if (initialized) persistCurrent()
+  }, () => {
+    clearAllAiHistory(); memory.clear(); collection = emptySessions(); displaySession(); persistCurrent()
+  })
   const ragStatus = createRagStatus(el('ai-rag-status'), () => workspace)
   window.addEventListener('pagehide', () => ragStatus.dispose(), { once: true })
 
@@ -121,7 +143,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       button.type = 'button'
       button.className = 'ai-source-item'
       button.textContent = `[${source.id}] ${source.title}${source.heading ? ' · ' + source.heading : ''}${source.startLine ? ' · L' + source.startLine + '–' + source.endLine : ''}${source.type === 'context' ? source.dirty ? ' · 未保存快照' : ' · 编辑快照' : ''}`
-      button.title = source.snippet
+      if (source.type === 'web') button.textContent += source.webKind === 'page' ? ' · 网页正文' : ' · 搜索摘要'
+      button.title = [source.url, source.retrievedAt ? '获取时间：' + source.retrievedAt : '', source.snippet].filter(Boolean).join('\n')
       button.addEventListener('click', () => openSource(source))
       details.appendChild(button)
       const snippet = document.createElement('div')
@@ -140,7 +163,11 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
     sendButton.disabled = value || !initialized
     stopButton.hidden = !value
     clearButton.disabled = value
-    scope.disabled = value
+    scope.disabled = value || mode.value === 'general'
+    mode.disabled = value
+    sessionSelect.disabled = value
+    for (const id of ['ai-session-rename', 'ai-session-delete', 'ai-session-export']) el<HTMLButtonElement>(id).disabled = value
+    profilePanel.setBusy(value)
     unsaved.disabled = value
     stopButton.disabled = false
     sendButton.textContent = value ? '思考中…' : '发送'
@@ -152,9 +179,9 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       void window.api.cancelAiQuery()
     }
     workspace = next
-    turns = loadSession(workspace)
-    messages.replaceChildren()
-    turns.forEach(renderTurn)
+    collection = initialized && memory.get(workspace) || loadSessions(workspace, privacy.persistHistory)
+    memory.set(workspace, collection)
+    displaySession()
     el('ai-workspace-hint').textContent = workspace ? '工作区：' + workspace : '未打开工作区，可使用通用问答'
     status.textContent = ''
     ragStatus.clearOutcome()
@@ -183,13 +210,54 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       finally { saveButton.disabled = false }
     })()
   })
+  function displaySession(): void {
+    const active = collection.sessions.find(s => s.id === collection.activeId) || collection.sessions[0]
+    collection.activeId = active.id; turns = active.turns
+    messages.replaceChildren(); turns.forEach(renderTurn)
+    sessionSelect.replaceChildren(...collection.sessions.map(item => {
+      const option = document.createElement('option'); option.value = item.id; option.textContent = item.title; return option
+    }))
+    sessionSelect.value = active.id
+  }
+  function persistCurrent(): boolean {
+    const active = collection.sessions.find(s => s.id === collection.activeId)!
+    active.turns = turns; active.updatedAt = Date.now()
+    if (active.title === '新对话' && turns.length) active.title = turns[0].question.slice(0, 30)
+    memory.set(workspace, collection)
+    for (const option of sessionSelect.options) option.textContent = collection.sessions.find(s => s.id === option.value)!.title
+    return saveSessions(workspace, collection, privacy.persistHistory)
+  }
   clearButton.addEventListener('click', () => {
     if (busy) return
-    turns = []
-    messages.replaceChildren()
+    if (collection.sessions.length >= 50) { status.textContent = '会话已达 50 个，请先导出并删除旧会话'; return }
+    const next = newSession(); collection.sessions.unshift(next); collection.activeId = next.id
+    displaySession()
     ragStatus.clearOutcome()
-    status.textContent = saveSession(workspace, turns) ? '已开始新对话' : '无法清除已保存的会话，请检查本地存储'
+    status.textContent = persistCurrent() ? '已开始新对话，旧对话可在列表中切换' : '会话保存失败'
   })
+  sessionSelect.addEventListener('change', () => { collection.activeId = sessionSelect.value; displaySession(); persistCurrent(); ragStatus.clearOutcome() })
+  el('ai-session-rename').addEventListener('click', () => { void (async () => {
+    const active = collection.sessions.find(s => s.id === collection.activeId)!
+    const title = await showPrompt({ title: '会话名称', defaultValue: active.title, validate: value => !value.trim() || value.length > 100 ? '请输入 1–100 字符' : null })
+    if (title !== null) { active.title = title.trim(); persistCurrent(); displaySession() }
+  })() })
+  el('ai-session-delete').addEventListener('click', () => {
+    if (!window.confirm('删除当前会话和引用快照吗？')) return
+    const deleted = deleteSavedSession(workspace, collection.activeId)
+    collection.sessions = collection.sessions.filter(s => s.id !== collection.activeId)
+    if (!collection.sessions.length) collection = emptySessions()
+    collection.activeId = collection.sessions[0].id; displaySession(); persistCurrent()
+    status.textContent = deleted ? '会话已删除' : '本机记录删除失败，请检查本地存储或使用清除全部会话'
+  })
+  el('ai-session-export').addEventListener('click', () => { void (async () => {
+    try {
+      const active = collection.sessions.find(s => s.id === collection.activeId)!
+      const path = await window.api.chooseSavePath(active.title.replace(/[\\/:*?"<>|]/g, '_') + '.md')
+      if (path) { const result = await window.api.writeFile(path, exportSession(active)); status.textContent = result.ok ? '会话已导出' : result.error }
+    } catch { status.textContent = '导出失败，请重试' }
+  })() })
+  mode.addEventListener('change', () => { web.checked = mode.value === 'notes-web'; scope.disabled = mode.value === 'general' })
+  web.addEventListener('change', () => { mode.value = web.checked ? 'notes-web' : 'notes' })
   stopButton.addEventListener('click', () => {
     generation++
     stopButton.disabled = true
@@ -238,7 +306,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       }
       if (current !== generation) return
       requestWorkspace = workspace
-      const context = scope.value === 'workspace' ? undefined : await deps.getContext(scope.value as 'document' | 'selection', unsaved.checked)
+      const context = mode.value === 'general' || scope.value === 'workspace' ? undefined : await deps.getContext(scope.value as 'document' | 'selection', unsaved.checked)
       if (current !== generation) return
       question.value = ''
       userMessage = addMessage('user', text)
@@ -256,7 +324,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
           if (renderTimer === undefined) renderTimer = window.setTimeout(paint, 50)
         }
       })
-      const result = await window.api.aiQuery({ ...config(), useLocal: scope.value === 'workspace' && local.checked,
+      const result = await window.api.aiQuery({ ...config(), mode: mode.value as 'notes' | 'notes-web' | 'general', useLocal: mode.value !== 'general' && scope.value === 'workspace' && local.checked,
         context, requestId, question: text, history: turns.slice(-6) })
       if (current !== generation) return
       if (!result.ok) {
@@ -273,10 +341,11 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       else answerBody(answerMessage.querySelector<HTMLElement>('.ai-answer')!, data.answer, data.sources)
       renderSources(answerMessage, data.sources)
       ragStatus.setOutcome(data)
-      const saved = saveSession(workspace, turns)
+      const saved = persistCurrent()
+      if (data.learnedPreferences?.length) void profilePanel.refresh().catch(() => {})
       status.textContent = [
         data.retrievalMode === 'rag' ? '本地混合检索' : data.retrievalMode === 'keyword' ? '本地关键词检索' : '',
-        ...data.notices, saved ? '' : '会话保存失败，本次仍可继续问答'
+        ...data.notices, data.learnedPreferences?.length ? '已更新个人偏好，可在设置中撤销' : '', saved ? '' : '会话保存失败，本次仍可继续问答'
       ].filter(Boolean).join(' · ')
       if (data.retrievalQuery !== text) status.title = '本轮检索问题：' + data.retrievalQuery
     } catch (error) {
@@ -308,13 +377,14 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
   })
   void (async () => {
     try {
-      const [cfg, ws] = await Promise.all([window.api.getAiConfig(), deps.getWorkspace()])
+      const [cfg, ws] = await Promise.all([window.api.getAiConfig(), deps.getWorkspace(), profilePanel.load()])
       provider.value = cfg.provider
       model.value = cfg.model
       apiKey.value = cfg.apiKey
       baseUrl.value = cfg.baseUrl
       local.checked = cfg.useLocal
       web.checked = cfg.useWeb
+      mode.value = cfg.useWeb ? 'notes-web' : 'notes'
       syncWorkspace(ws)
       if (!cfg.model || (!cfg.apiKey && ['openrouter', 'siliconcloud'].includes(cfg.provider))) {
         configBody.style.display = 'flex'

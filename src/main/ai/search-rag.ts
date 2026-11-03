@@ -1,17 +1,20 @@
 import type { LocalSearchResult } from './search-local'
 import type { RagStatus } from '@shared/ipc'
-
-const RAG_BASE_URL = process.env.MDEDIT_RAG_URL || 'http://127.0.0.1:8765'
+import { getRagConnection, ragProcessState } from './rag-process'
 
 export async function getRagStatus(): Promise<RagStatus> {
   const empty: RagStatus = { available: false, compatible: false, indexed: false, chunks: 0,
     embedder: null, workspace: null, building: false, phase: 'offline', completed: 0, total: 0, error: null }
   try {
-    const response = await fetch(RAG_BASE_URL + '/health', { signal: AbortSignal.timeout(2000) })
+    const processState = ragProcessState()
+    if (processState.managed && processState.serviceState !== 'running') return { ...empty, ...processState }
+    const connection = await getRagConnection()
+    if (!connection) return { ...empty, ...processState }
+    const response = await fetch(connection.url + '/health', { headers: connection.headers, signal: AbortSignal.timeout(2000) })
     if (!response.ok) return { ...empty, error: '本地检索服务返回错误，将使用内置关键词检索' }
     const data = await response.json() as Record<string, unknown>
     if (data.ok !== true) return { ...empty, error: '本地检索服务响应无效' }
-    return { available: true, compatible: data.protocol === 2, indexed: data.indexed === true,
+    return { ...processState, available: true, compatible: data.protocol === 2, indexed: data.indexed === true,
       chunks: typeof data.chunks === 'number' ? data.chunks : 0,
       embedder: typeof data.embedder === 'string' ? data.embedder : null,
       workspace: typeof data.workspace === 'string' ? data.workspace : null,
@@ -24,8 +27,10 @@ export async function getRagStatus(): Promise<RagStatus> {
 
 async function postJson<T>(path: string, body: unknown, timeoutMs: number, signal?: AbortSignal): Promise<T | null> {
   try {
-    const res = await fetch(RAG_BASE_URL + path, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    const connection = await getRagConnection()
+    if (!connection) return null
+    const res = await fetch(connection.url + path, {
+      method: 'POST', headers: { ...connection.headers, 'content-type': 'application/json' }, body: JSON.stringify(body),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
     })
     if (!res.ok) return null

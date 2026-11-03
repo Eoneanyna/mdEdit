@@ -8,11 +8,32 @@ import { callOpenAICompat } from './providers/openai-compat'
 import { ragSearch } from './search-rag'
 import { searchLocalMd } from './search-local'
 import { queryAi } from './query'
+import { searchWeb } from './search-web'
 
 const req: AiQueryRequest = { question: '它的负责人是谁', provider: 'ollama', model: 'test', useLocal: true, useWeb: false,
   history: [{ question: '青岚项目什么时候验收', answer: '12月8日', sources: [] }] }
 beforeEach(() => { vi.mocked(ragSearch).mockResolvedValue(null); vi.mocked(searchLocalMd).mockResolvedValue([]) })
 afterEach(() => vi.resetAllMocks())
+it('distinguishes external page evidence when local notes have no answer', async () => {
+  vi.mocked(searchWeb).mockResolvedValue([{ title: 'RAG 文档', url: 'https://example.com/rag', description: '检索增强生成先检索再生成', webKind: 'page', retrievedAt: '2026-11-03T00:00:00Z' }])
+  vi.mocked(callOpenAICompat).mockResolvedValue('据外部网页，RAG 是检索增强生成 [1]')
+  const result = await queryAi({ ...req, question: 'RAG 的定义', mode: 'notes-web', history: [] }, '/docs')
+  expect(result.sources[0]).toMatchObject({ type: 'web', webKind: 'page', url: 'https://example.com/rag' })
+  expect(result.notices.join('')).toContain('外部网页补充')
+  expect(vi.mocked(callOpenAICompat).mock.calls[0][2]).toContain('外部网页（正文）')
+})
+it('general mode sends preferences but does not retrieve notes or web', async () => {
+  vi.mocked(callOpenAICompat).mockResolvedValue('通用知识回答')
+  const result = await queryAi({ ...req, mode: 'general', useWeb: true, history: [] }, '/docs', undefined, undefined, '- 以后用英文回答')
+  expect(result.sources).toEqual([])
+  expect(ragSearch).not.toHaveBeenCalled(); expect(searchWeb).not.toHaveBeenCalled()
+  expect(vi.mocked(callOpenAICompat).mock.calls[0][1]).toContain('以后用英文回答')
+})
+it('explicit notes mode refuses unsupported answers even if local retrieval was disabled', async () => {
+  const result = await queryAi({ ...req, mode: 'notes', useLocal: false, history: [] }, '/docs')
+  expect(result.answer).toContain('无法根据文档回答')
+  expect(callOpenAICompat).not.toHaveBeenCalled()
+})
 describe('retrieval augmented follow-ups', () => {
   it('rewrites follow-ups and generates using fresh numbered evidence and history', async () => {
     vi.mocked(callOpenAICompat).mockResolvedValueOnce('青岚项目负责人是谁').mockResolvedValueOnce('林知远 [1]')

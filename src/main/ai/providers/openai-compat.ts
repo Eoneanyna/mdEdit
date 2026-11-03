@@ -34,7 +34,7 @@ export async function callOpenAICompat(
   ]
   try {
     const res = await fetch(url, {
-      method: 'POST', headers,
+      method: 'POST', headers, redirect: 'error',
       body: JSON.stringify({ model: req.model, messages, temperature: 0.2, max_tokens: 2048, ...(onDelta ? { stream: true } : {}) }),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(90_000)]) : AbortSignal.timeout(90_000)
     })
