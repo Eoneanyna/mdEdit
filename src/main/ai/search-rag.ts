@@ -5,15 +5,15 @@ import { getRagConnection, ragProcessState } from './rag-process'
 export async function getRagStatus(): Promise<RagStatus> {
   const empty: RagStatus = { available: false, compatible: false, indexed: false, chunks: 0,
     embedder: null, workspace: null, building: false, phase: 'offline', completed: 0, total: 0, error: null }
+  const processState = ragProcessState()
   try {
-    const processState = ragProcessState()
     if (processState.managed && processState.serviceState !== 'running') return { ...empty, ...processState }
     const connection = await getRagConnection()
     if (!connection) return { ...empty, ...processState }
     const response = await fetch(connection.url + '/health', { headers: connection.headers, signal: AbortSignal.timeout(2000) })
-    if (!response.ok) return { ...empty, error: '本地检索服务返回错误，将使用内置关键词检索' }
+    if (!response.ok) return { ...empty, ...processState, error: '本地检索服务返回错误，将使用内置关键词检索' }
     const data = await response.json() as Record<string, unknown>
-    if (data.ok !== true) return { ...empty, error: '本地检索服务响应无效' }
+    if (data.ok !== true) return { ...empty, ...processState, error: '本地检索服务响应无效' }
     return { ...processState, available: true, compatible: data.protocol === 2, indexed: data.indexed === true,
       chunks: typeof data.chunks === 'number' ? data.chunks : 0,
       embedder: typeof data.embedder === 'string' ? data.embedder : null,
@@ -22,7 +22,7 @@ export async function getRagStatus(): Promise<RagStatus> {
       completed: typeof data.completed === 'number' ? data.completed : 0,
       total: typeof data.total === 'number' ? data.total : 0,
       error: typeof data.error === 'string' ? data.error : null }
-  } catch { return { ...empty, error: '本地检索服务未连接，将使用内置关键词检索' } }
+  } catch { return { ...empty, ...processState, error: '本地检索服务未连接，将使用内置关键词检索' } }
 }
 
 async function postJson<T>(path: string, body: unknown, timeoutMs: number, signal?: AbortSignal): Promise<T | null> {

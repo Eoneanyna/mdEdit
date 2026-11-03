@@ -204,6 +204,7 @@ export interface RendererApi {
   getAiConfig: () => Promise<AiConfig>
   /** AI 助手:保存模型配置 */
   setAiConfig: (config: AiConfig) => Promise<void>
+  testAiConnection: (config: AiConfig) => Promise<Result<{ model: string; latencyMs: number }>>
   /** AI 助手:发起一次检索增强问答 */
   aiQuery: (req: AiQueryRequest) => Promise<Result<AiQueryResponse>>
   cancelAiQuery: () => Promise<void>

@@ -5,6 +5,13 @@ import type { AiQueryRequest } from '@shared/ipc'
 const req: AiQueryRequest = { question: '追问', provider: 'openrouter', model: 'openrouter/free', apiKey: 'test-placeholder', useLocal: true, useWeb: false }
 afterEach(() => vi.unstubAllGlobals())
 describe('OpenAI compatible requests', () => {
+  it('uses the small generation budget and short timeout for a connection test', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] })))
+    vi.stubGlobal('fetch', fetcher)
+    await callOpenAICompat(req, 'test', 'OK', undefined, undefined, { timeoutMs: 15000, maxTokens: 16 })
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).max_tokens).toBe(16)
+    expect(fetcher.mock.calls[0][1].redirect).toBe('error')
+  })
   it('sends ordered multi-turn messages, auth and the current evidence', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: '答案' } }] })))
     vi.stubGlobal('fetch', fetcher)

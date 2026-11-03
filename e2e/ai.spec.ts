@@ -10,6 +10,7 @@ let baseUrl: string
 let calls: Array<{ messages: Array<{ role: string; content: string }> }>
 let hold = false
 let streaming = false
+let modelStatus = 200
 let finishStream: (() => void) | undefined
 let ragHealth: Record<string, unknown> | undefined
 
@@ -17,6 +18,7 @@ test.beforeEach(async () => {
   calls = []
   hold = false
   streaming = false
+  modelStatus = 200
   finishStream = undefined
   ragHealth = undefined
   server = createServer((req, res) => {
@@ -31,6 +33,7 @@ test.beforeEach(async () => {
       const data = JSON.parse(body)
       calls.push(data)
       if (hold) return
+      if (modelStatus !== 200) { res.writeHead(modelStatus); res.end('secret-upstream-body'); return }
       const prompt = data.messages.at(-1).content
       const rewriting = data.messages[0].content.includes('改写器')
       const answer = rewriting ? '青岚项目负责人是谁' : prompt.includes('陈小川') ? '负责人：陈小川 [1]' : '负责人：林知远 [1]'
@@ -74,6 +77,52 @@ async function configure(workspace: string): Promise<void> {
   })
   await expect(win.locator('#ai-send')).toBeEnabled()
 }
+
+test('连接测试不发送笔记历史偏好、不改会话或配置，失败时可重试', async () => {
+  const { win } = harness!
+  await configure(makeWorkspace({ '项目.md': '青岚项目负责人：林知远' }))
+  await win.locator('#ai-question').fill('青岚项目负责人是谁？'); await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-send')).toBeEnabled()
+  const profile = await win.evaluate(() => window.api.getAiProfile())
+  await win.evaluate(async profile => { await window.api.saveAiPreferences(profile.markdown + '\n偏好秘密：测试内容', profile.revision) }, profile)
+  const revision = (await win.evaluate(() => window.api.getAiProfile())).revision
+  await win.locator('#ai-config-toggle').click()
+  await win.locator('#ai-model').fill('unsaved-test-model')
+  await win.locator('#ai-test-connection').click()
+  await expect(win.locator('#ai-connection-status')).toContainText('连接成功：unsaved-test-model')
+  expect(calls).toHaveLength(2)
+  expect(calls[1].messages).toHaveLength(2)
+  expect(JSON.stringify(calls[1])).not.toMatch(/林知远|偏好秘密|青岚项目/)
+  expect((await win.evaluate(() => window.api.getAiConfig())).model).toBe('test-model')
+  expect((await win.evaluate(() => window.api.getAiProfile())).revision).toBe(revision)
+  await expect(win.locator('.ai-msg--ai')).toHaveCount(1)
+  modelStatus = 401
+  await win.locator('#ai-test-connection').click()
+  await expect(win.locator('#ai-connection-status')).toContainText('API Key 无效')
+  await expect(win.locator('#ai-connection-status')).not.toContainText('secret-upstream-body')
+  modelStatus = 200
+  await win.locator('#ai-test-connection').click()
+  await expect(win.locator('#ai-connection-status')).toContainText('连接成功')
+})
+
+test('连接测试可停止，停止后可以重新测试且保留输入问题', async () => {
+  const { win } = harness!
+  await configure(makeWorkspace({ '项目.md': '青岚项目负责人：林知远' }))
+  await win.locator('#ai-config-toggle').click()
+  await win.locator('#ai-question').fill('尚未发送的问题')
+  hold = true
+  await win.locator('#ai-test-connection').click()
+  await expect.poll(() => calls.length).toBe(1)
+  await expect(win.locator('#ai-model')).toBeDisabled()
+  await win.locator('#ai-stop').click()
+  await expect(win.locator('#ai-connection-status')).toContainText('已停止')
+  await expect(win.locator('#ai-test-connection')).toBeEnabled()
+  await expect(win.locator('#ai-question')).toHaveValue('尚未发送的问题')
+  hold = false
+  await win.locator('#ai-test-connection').click()
+  await expect(win.locator('#ai-connection-status')).toContainText('连接成功')
+  await expect(win.locator('.ai-msg')).toHaveCount(0)
+})
 
 test('个人偏好自动学习、下一轮使用、撤销及关闭学习', async () => {
   const { win } = harness!

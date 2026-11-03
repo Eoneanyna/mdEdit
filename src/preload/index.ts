@@ -133,6 +133,7 @@ const api: RendererApi = {
 
   getAiConfig: (): Promise<AiConfig> => ipcRenderer.invoke('ai:get-config'),
   setAiConfig: (config: AiConfig): Promise<void> => ipcRenderer.invoke('ai:set-config', config),
+  testAiConnection: (config: AiConfig) => ipcRenderer.invoke('ai:test-connection', config),
   aiQuery: (req: AiQueryRequest): Promise<Result<AiQueryResponse>> => ipcRenderer.invoke('ai:query', req),
   cancelAiQuery: (): Promise<void> => ipcRenderer.invoke('ai:cancel'),
   onAiEvent: (handler: (event: AiQueryEvent) => void): (() => void) => subscribe('ai:event', handler),

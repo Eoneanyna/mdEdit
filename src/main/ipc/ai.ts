@@ -8,10 +8,20 @@ import { guard } from './guard'
 import { AiProfileStore, enforceLocalPrivacy } from '../ai/profile'
 import { restartRagProcess } from '../ai/rag-process'
 import { validateRequest } from '../ai/conversation'
+import { testAiConnection } from '../ai/connection'
 
 export function registerAiIpc(): void {
   const profile = new AiProfileStore(join(app.getPath('userData'), 'ai'))
   const active = new Map<number, AbortController>()
+  ipcMain.handle('ai:test-connection', async (event, config: AiConfig) => {
+    const id = event.sender.id
+    if (active.has(id)) return { ok: false, error: '已有 AI 请求进行中，请等待或停止' }
+    const controller = new AbortController()
+    const destroyed = (): void => controller.abort()
+    active.set(id, controller); event.sender.once('destroyed', destroyed)
+    try { return await guard(() => testAiConnection(config, profile.getPrivacy(), controller.signal)) }
+    finally { active.delete(id); event.sender.removeListener('destroyed', destroyed) }
+  })
   ipcMain.handle('ai:query', async (event, req: AiQueryRequest) => {
     const id = event.sender.id
     if (active.has(id)) return { ok: false, error: '已有问答进行中，请等待或停止生成' }

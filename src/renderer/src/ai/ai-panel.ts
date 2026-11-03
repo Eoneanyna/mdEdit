@@ -26,6 +26,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
         <button class="ai-btn" id="ai-clear" type="button">新对话</button>
       </div>
       <div class="ai-panel__config" id="ai-config-body" style="display:none">
+        <div class="ai-panel__privacy" id="ai-setup-hint">① 选择模型服务，填写模型与 Key（Ollama 可留空） ② 测试连接并保存 ③ 打开笔记文件夹提问</div>
         <select class="ai-select" id="ai-provider" aria-label="模型供应商">
           <option value="openrouter">OpenRouter</option><option value="siliconcloud">SiliconCloud</option>
           <option value="ollama">Ollama</option><option value="custom">自定义</option>
@@ -37,7 +38,10 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
           <label class="ai-check"><input type="checkbox" id="ai-local" checked />检索本地文档</label>
           <label class="ai-check"><input type="checkbox" id="ai-web" />检索网页</label>
           <button class="ai-btn" id="ai-savecfg" type="button">保存配置</button>
+          <button class="ai-btn" id="ai-test-connection" type="button">测试连接</button>
         </div>
+        <div class="ai-panel__privacy">连接测试仅发送固定的“回复 OK”请求，不附带笔记、会话或偏好；云端测试可能产生少量费用，最长等待 15 秒。</div>
+        <div class="ai-panel__privacy" id="ai-connection-status" role="status" aria-live="polite"></div>
         <div class="ai-panel__privacy">安装包内置轻量检索，无需 Python。选择模型并保存 Key，或连接本机 Ollama 即可开始。云端模型会接收问题、偏好、最近 6 轮问答及本轮资料。未保存内容仅在勾选后发送。会话与偏好以明文保存在本机，不会写回笔记。</div>
       </div>
       <div class="ai-session-row"><select class="ai-select" id="ai-session" aria-label="历史会话"></select><button class="ai-btn" id="ai-session-rename">改名</button><button class="ai-btn" id="ai-session-delete">删除</button><button class="ai-btn" id="ai-session-export">导出</button></div>
@@ -75,6 +79,8 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
   const stopButton = el<HTMLButtonElement>('ai-stop')
   const clearButton = el<HTMLButtonElement>('ai-clear')
   const saveButton = el<HTMLButtonElement>('ai-savecfg')
+  const testButton = el<HTMLButtonElement>('ai-test-connection')
+  const connectionStatus = el('ai-connection-status')
   const configToggle = el<HTMLButtonElement>('ai-config-toggle')
   const configBody = el('ai-config-body')
   const scope = el<HTMLSelectElement>('ai-scope')
@@ -168,6 +174,9 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
     sessionSelect.disabled = value
     for (const id of ['ai-session-rename', 'ai-session-delete', 'ai-session-export']) el<HTMLButtonElement>(id).disabled = value
     profilePanel.setBusy(value)
+    testButton.disabled = value || !initialized
+    saveButton.disabled = value || !initialized
+    for (const input of [provider, model, apiKey, baseUrl, local, web]) input.disabled = value
     unsaved.disabled = value
     stopButton.disabled = false
     sendButton.textContent = value ? '思考中…' : '发送'
@@ -202,6 +211,24 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
     model.value = defaults.model
     apiKey.value = ''
   })
+  for (const input of [provider, model, apiKey, baseUrl]) input.addEventListener('input', () => {
+    connectionStatus.textContent = '配置已修改，请重新测试；测试不会自动保存配置。'
+  })
+  testButton.addEventListener('click', () => { void (async () => {
+    if (busy || !initialized) return
+    const current = ++generation
+    setBusy(true); sendButton.textContent = '测试中…'
+    status.textContent = ''
+    connectionStatus.textContent = '正在测试模型连接…'
+    try {
+      const result = await window.api.testAiConnection(config())
+      if (current !== generation) { connectionStatus.textContent = '连接测试已停止'; return }
+      connectionStatus.textContent = result.ok
+        ? `连接成功：${result.value.model} · ${(result.value.latencyMs / 1000).toFixed(1)} 秒；可保存配置后提问。`
+        : result.error + (provider.value === 'ollama' ? '。请确认 Ollama 已运行，且已下载此聊天模型。' : '。请检查模型名称、Key、接口地址及账户额度。')
+    } catch { connectionStatus.textContent = '测试失败，请检查连接后重试' }
+    finally { if (current !== generation) status.textContent = '连接测试已停止'; setBusy(false) }
+  })() })
   saveButton.addEventListener('click', () => {
     void (async () => {
       saveButton.disabled = true

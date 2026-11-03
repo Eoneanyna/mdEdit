@@ -10,7 +10,8 @@ export const PROVIDER_URLS = {
 
 export async function callOpenAICompat(
   req: AiQueryRequest, systemPrompt: string, userPrompt: string, signal?: AbortSignal,
-  onDelta?: (text: string) => void
+  onDelta?: (text: string) => void,
+  options: { timeoutMs?: number; maxTokens?: number } = {}
 ): Promise<string> {
   const baseUrl = req.baseUrl?.trim() || (req.provider === 'custom' ? '' : PROVIDER_URLS[req.provider])
   if (!baseUrl) throw new Error('自定义供应商需要填写 Base URL')
@@ -35,8 +36,8 @@ export async function callOpenAICompat(
   try {
     const res = await fetch(url, {
       method: 'POST', headers, redirect: 'error',
-      body: JSON.stringify({ model: req.model, messages, temperature: 0.2, max_tokens: 2048, ...(onDelta ? { stream: true } : {}) }),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(90_000)]) : AbortSignal.timeout(90_000)
+      body: JSON.stringify({ model: req.model, messages, temperature: 0.2, max_tokens: options.maxTokens ?? 2048, ...(onDelta ? { stream: true } : {}) }),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(options.timeoutMs ?? 90_000)]) : AbortSignal.timeout(options.timeoutMs ?? 90_000)
     })
     if (!res.ok) {
       const hints: Record<number, string> = {
