@@ -1,18 +1,94 @@
 name: release
 
-# 推送 v 开头的 tag 时构建三平台安装包并挂到 Release。
-# 也允许手动触发,此时只构建、不发布,便于验证打包链路。
+# 发版全程由 CI 完成,不需要本地打 tag、也不需要手动点 Publish:
+#   1) 推送 v* tag:CI 构建三平台安装包并公开发布 Release
+#   2) Actions 页面手动 Run workflow:填版本号(留空取 package.json),
+#      CI 校验版本、创建 tag、构建三平台并公开发布
+# 手动触发可勾 dry_run 只验证打包链路、不发布。
+# 版本号必须与 package.json 一致;已公开发布过的版本会被拦截,避免覆盖。
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: '要发布的版本号(不带 v)。留空则取 package.json 的 version'
+        required: false
+        type: string
+      dry_run:
+        description: '只构建验证,不创建或发布 Release'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+# 同一 tag / 分支的触发串行,避免并发构建互相覆盖 Release 资产
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  meta:
+    name: resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # tag 与手动触发统一在这里算出版本号并校验,构建 job 依赖它,
+      # 版本不对就在几秒内失败,不必等三平台打包跑完。
+      - name: Resolve version
+        id: resolve
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          PKG=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            VERSION="${INPUT_VERSION:-$PKG}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [ "$VERSION" != "$PKG" ]; then
+            echo "::error::版本号 ($VERSION) 与 package.json ($PKG) 不一致;请先修改 package.json"
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::版本号格式不合法: $VERSION"
+            exit 1
+          fi
+          TAG="v$VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "版本校验通过,准备发布 $TAG"
+
+      # 手动发版时防止把已发布的 Release 覆盖掉;草稿则允许补齐资产后公开。
+      # 自动 tag 推送不查:刚创建的 tag 不可能有已发布 Release,重跑也应允许更新资产。
+      - name: Guard published release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != true }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if DRAFT=$(gh release view "$TAG" --json isDraft -q .isDraft 2>/dev/null); then
+            if [ "$DRAFT" = "false" ]; then
+              echo "::error::$TAG 已公开发布过,请先 bump package.json 版本再发版"
+              exit 1
+            fi
+            echo "发现 $TAG 的草稿 Release,本轮会补齐资产并公开发布"
+          else
+            echo "$TAG 尚无 Release,将创建 tag 并发布"
+          fi
+
   build:
     name: build (${{ matrix.os }})
+    needs: meta
     strategy:
       # 某个平台失败时,其余平台的包仍然产出,不至于全军覆没
       fail-fast: false
@@ -45,19 +121,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      # 防止 tag 与 package.json 版本不一致导致发出错号的包
-      - name: Check version matches tag
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          PKG=$(node -p "require('./package.json').version")
-          if [ "$TAG" != "$PKG" ]; then
-            echo "::error::tag 版本 ($TAG) 与 package.json ($PKG) 不一致"
-            exit 1
-          fi
-          echo "版本一致: $PKG"
-
       - name: Build installer
         # --publish never:发布交给下面的 release job,避免 electron-builder
         # 在 CI 中自行上传而与之冲突
@@ -75,9 +138,8 @@ jobs:
 
   release:
     name: publish release
-    needs: build
-    # 手动触发时只验证构建,不创建 Release
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [meta, build]
+    if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -91,7 +153,13 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          # 手动触发时 tag 可能还不存在,target_commitish 让 action 从当前提交创建它;
+          # 已有 tag 时则复用,不会移动 tag 指向。
+          tag_name: ${{ needs.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: dist/*
-          # 先建草稿,内容确认无误后再手动点发布
-          draft: true
+          fail_on_unmatched_files: true
           generate_release_notes: true
+          prerelease: ${{ contains(needs.meta.outputs.tag, '-') }}
+          # 不设 draft:action 默认公开发布;若该 tag 已有草稿,
+          # 会在补齐资产后直接把它发布,无需人工点 Publish。
