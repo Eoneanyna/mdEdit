@@ -47,10 +47,24 @@ async function main() {
     writeFileSync(join(directory, 'note.md'), '# 青岚项目\n青岚项目负责人是林知远。\n')
     const post = async (path, body) => {
       const response = await fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-mdedit-token': token }, body: JSON.stringify(body) })
-      assert.equal(response.status, 200, await response.clone().text()); return response.json()
+      const text = await response.clone().text()
+      if (response.status !== 200) {
+        // 500 的响应体只有 "Internal Server Error",必须把服务端输出与状态
+        // 一起带上,否则 CI annotation 里看不到 Python traceback,无法定位。
+        let health = '(unavailable)'
+        try {
+          health = await (await fetch(base + '/health', { headers: { 'x-mdedit-token': token } })).text()
+        } catch { /* 服务可能已退出 */ }
+        throw new Error([
+          `POST ${path} -> ${response.status}`, text,
+          '--- health ---', health,
+          '--- service output ---', logs
+        ].join('\n'))
+      }
+      return response.json()
     }
     await post('/index', { workspace: directory })
-    const result = await post('/search', { query: '青岚项目负责人', limit: 3 })
+    const result = await post('/search', { query: '青岚项目负责人', top_k: 3 })
     assert.ok(JSON.stringify(result).includes('林知远'), 'retrieval did not find note')
     console.log('PASS: frozen RAG starts with empty PATH, rejects unauthenticated access and retrieves local Markdown')
   } finally {

@@ -66,10 +66,12 @@ def create_embedder(prefer_semantic: bool = True):
     if prefer_semantic and os.environ.get('MDEDIT_EMBEDDER') != 'hash':
         try:
             emb = SentenceTransformerEmbedder()
-            print(f"[embedding] 使用语义模型 {MODEL_NAME} (dim={emb.dim})")
+            print(f"[embedding] semantic model {MODEL_NAME} (dim={emb.dim})")
             return emb
         except Exception as e:  # 未安装/下载失败等
-            print(f"[embedding] 语义模型不可用({e.__class__.__name__}: {e}),回退哈希向量")
+            print(f"[embedding] semantic model unavailable ({e.__class__.__name__}: {e}), falling back to hash")
     emb = HashingEmbedder()
-    print(f"[embedding] 使用哈希向量 dim={emb.dim}(安装 sentence-transformers 可升级语义检索)")
+    # 进度日志保持 ASCII:冻结程序的 stdout 编码不受调用方控制,中文日志在
+    # 非 UTF-8 的 Windows 区域设置下会让 /index 变成 500。
+    print(f"[embedding] hash vectors dim={emb.dim} (install sentence-transformers to upgrade)")
     return emb

@@ -80,10 +80,11 @@ class SearchIndex:
         self.chunks, self.bm25, self.vectors = chunks, bm25, vectors
         self.embedder, self.workspace = embedder, workspace
         self.built_at = time.time()
+        # ASCII 日志:见 entrypoint.force_utf8_streams 的说明。
         print(
-            f"[index] 完成: {len(self.chunks)} 块, "
+            f"[index] done: {len(self.chunks)} chunks, "
             f"embedder={getattr(self.embedder, 'name', '?')}, "
-            f"耗时 {time.time() - t0:.1f}s"
+            f"{time.time() - t0:.1f}s"
         )
 
     def search(self, query: str, top_k: int = 6, method: str = "hybrid") -> list[SearchHit]:
