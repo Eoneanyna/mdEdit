@@ -11,6 +11,12 @@ async function main() {
   const server = createServer((req, res) => {
     let body = ''; req.on('data', data => { body += data }); req.on('end', () => {
       const input = JSON.parse(body)
+      if (input.tools) {
+        assert.ok(input.messages[0].content.includes('学习路线'))
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ choices: [{ message: { content: '通用学习建议：先学模型调用与提示词，再学检索与会话，最后完成一个问答项目。' } }] }))
+        return
+      }
       assert.ok(input.messages.at(-1).content.includes('林知远'))
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ choices: [{ message: { content: '青岚项目负责人是林知远 [1]' } }] }))
@@ -37,12 +43,19 @@ async function main() {
     assert.equal(result.ok, true, JSON.stringify(result))
     assert.equal(result.value.retrievalMode, 'rag'); assert.ok(result.value.answer.includes('林知远'))
     assert.equal(result.value.sources[0].type, 'local')
+    const learning = await win.evaluate(baseUrl => window.api.aiQuery({ provider: 'custom', model: 'smoke', apiKey: '', baseUrl,
+      question: '学习langchain应该从哪些方面学习？', useLocal: true, useWeb: false, mode: 'auto' }), 'http://127.0.0.1:' + server.address().port + '/v1')
+    assert.equal(learning.ok, true, JSON.stringify(learning))
+    assert.ok(learning.value.answer.includes('通用学习建议'))
+    assert.equal(learning.value.sources.length, 0)
+    const version = await app.evaluate(({ app }) => app.getVersion())
+    console.log('Packaged application version:', version)
     const profile = await win.evaluate(() => window.api.getAiProfile())
     assert.ok(profile.path.startsWith(directory)); assert.ok(profile.markdown.includes('个人 AI 偏好'))
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('menu:ai-toggle'))
     await win.locator('#ai-send').waitFor({ state: 'visible' })
     await win.screenshot({ path: resolve('release/ai-preview.png') })
-    console.log('PASS: packaged Electron starts managed RAG without Python PATH and answers with local citations; screenshot release/ai-preview.png')
+    console.log('PASS: packaged Electron starts managed RAG without Python PATH, answers with local citations and preserves a direct learning roadmap; screenshot release/ai-preview.png')
     await app.close(); app = undefined
   } finally {
     if (app) { try { await app.close() } catch {} }

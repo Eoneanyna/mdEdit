@@ -28,7 +28,7 @@ export function validateRequest(req: AiQueryRequest): AiQueryRequest {
   if (req.baseUrl !== undefined && typeof req.baseUrl !== 'string') throw new Error('Base URL 格式无效')
   if (['openrouter', 'siliconcloud'].includes(req.provider) && !req.apiKey?.trim()) throw new Error('请填写 API Key')
   if (req.history !== undefined && !Array.isArray(req.history)) throw new Error('会话历史格式无效')
-  if (req.mode !== undefined && !['notes', 'notes-web', 'general'].includes(req.mode)) throw new Error('问答模式无效')
+  if (req.mode !== undefined && !['auto', 'notes', 'notes-web', 'general'].includes(req.mode)) throw new Error('问答模式无效')
   if (req.context !== undefined) {
     const ctx = req.context
     if (!ctx || !['document', 'selection'].includes(ctx.kind) || typeof ctx.content !== 'string' || !ctx.content.trim()) throw new Error('当前文档或选区为空')
@@ -40,7 +40,7 @@ export function validateRequest(req: AiQueryRequest): AiQueryRequest {
     if (ctx.kind === 'selection' && (!Number.isInteger(ctx.selectionFrom) || !Number.isInteger(ctx.selectionTo) || ctx.selectionFrom! < 0 || ctx.selectionTo! <= ctx.selectionFrom!)) throw new Error('选区范围无效')
   }
   return { ...req, question: req.question.trim(), model: req.model.trim(), history: boundedHistory(req.history),
-    ...(req.mode === 'general' ? { useLocal: false, useWeb: false, context: undefined } : req.mode ? { useWeb: req.mode === 'notes-web' } : {}) }
+    ...(req.mode === 'general' ? { useLocal: false, useWeb: false, context: undefined } : req.mode && req.mode !== 'auto' ? { useWeb: req.mode === 'notes-web' } : {}) }
 }
 
 export const ANSWER_SYSTEM = `你是支持多轮问答的本地文档助手。

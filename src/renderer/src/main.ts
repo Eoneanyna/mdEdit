@@ -4,7 +4,8 @@
   type FileKind,
   KIND_LABEL,
   KIND_SHORT,
-  type MenuChannel
+  type MenuChannel,
+  type ReadingProgress
 } from '@shared/ipc'
 import { markdownToText } from './convert/md-to-text'
 import { textToMarkdown } from './convert/text-to-md'
@@ -18,7 +19,7 @@ import { DocumentState } from './state/document'
 import { countText } from './state/word-count'
 import { DIVIDER, type PopupItem, showPopup } from './ui/popup'
 import { showPrompt } from './ui/prompt'
-import { baseName, dirName } from './utils/path'
+import { baseName, dirName, isPathInside } from './utils/path'
 import { createAiPanel } from './ai/ai-panel'
 import { documentHash } from './editor/citation'
 import './styles/main.css'
@@ -93,7 +94,16 @@ async function bootstrap(): Promise<void> {
 
   // 大纲的滚动容器是编辑区本身
   const editorPane = el('.editor-pane')
-  const outline = new Outline(el('#outline'), editorPane)
+  const outline = new Outline(el('#outline'), editorPane, {
+    getMarkdown: () => editor.getMarkdown(),
+    applyMarkdown: (markdown) => {
+      editor.setMarkdown(markdown)
+      renderCount()
+      scheduleOutlineRefresh()
+      scheduleAutoSave()
+    },
+    notify
+  })
   const outlineDocEl = el('#outline-doc')
 
   // 输入过程中不必每次按键都重扫标题
@@ -154,15 +164,69 @@ async function bootstrap(): Promise<void> {
   editor.onChange(scheduleOutlineRefresh)
   outline.refresh()
 
+  // ---- 阅读进度 ----
+
+  /** 滚动比例而非像素:窗口尺寸、字体变化后仍能回到同一位置 */
+  function currentProgress(): ReadingProgress {
+    const max = editorPane.scrollHeight - editorPane.clientHeight
+    return {
+      ratio: max > 0 ? Math.min(1, Math.max(0, editorPane.scrollTop / max)) : 0,
+      cursor: editor.getCursor(),
+      updatedAt: Date.now()
+    }
+  }
+
+  /** 离开当前文档(切换/新建/删除/关窗)前把进度落盘 */
+  function rememberProgress(): void {
+    const path = doc.path
+    if (!path) return
+    void window.api.setReadingProgress(path, currentProgress())
+  }
+
+  function restoreProgress(progress: ReadingProgress): void {
+    // 整篇替换后布局可能还没稳定,等两帧再定位
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      // 先放光标,再定位滚动条:设置选区时浏览器可能顺带滚动,顺序反了会覆盖进度
+      if (progress.cursor !== null) editor.setCursor(progress.cursor)
+      const max = editorPane.scrollHeight - editorPane.clientHeight
+      if (max > 0) {
+        editorPane.scrollTop = Math.min(1, Math.max(0, progress.ratio)) * max
+      }
+    }))
+  }
+
+  // 停止滚动半秒后写一次,避免每帧都碰设置文件
+  let progressTimer: number | undefined
+  editorPane.addEventListener('scroll', () => {
+    window.clearTimeout(progressTimer)
+    progressTimer = window.setTimeout(rememberProgress, 500)
+  }, { passive: true })
+
+  // 格式刷激活时给一句提示,退出时保持安静
+  let painterWasActive = false
+  editor.onFormatPainterChange((active) => {
+    if (active === painterWasActive) return
+    painterWasActive = active
+    if (active) notify('格式刷已就绪:选中要应用格式的文字(Esc 取消)')
+  })
+
   /** 有未保存改动时先征求确认,避免静默丢失 */
   function confirmDiscard(): boolean {
     if (!doc.dirty) return true
     return window.confirm(`「${doc.name}」有未保存的修改,确定放弃吗?`)
   }
 
-  /** 载入指定路径。skipConfirm 供外部改动后的重新载入使用 */
-  async function openPath(filePath: string, skipConfirm = false): Promise<void> {
+  /**
+   * 载入指定路径。skipConfirm 供外部改动后的重新载入使用;
+   * restoreReading 为 false 时(例如 AI 引用跳转)让调用方决定落点。
+   */
+  async function openPath(
+    filePath: string,
+    skipConfirm = false,
+    restoreReading = true
+  ): Promise<void> {
     if (!skipConfirm && !confirmDiscard()) return
+    rememberProgress()
     const result = await window.api.readFile(filePath)
     if (!result.ok) {
       notify(`打开失败:${result.error}`)
@@ -173,6 +237,10 @@ async function bootstrap(): Promise<void> {
     // 换文件即换监听目标
     window.api.watchFile(result.value.path)
     editor.focus()
+    if (restoreReading) {
+      const progress = await window.api.getReadingProgress(result.value.path)
+      if (progress) restoreProgress(progress)
+    }
     notify(`已打开 ${result.value.name}`)
   }
 
@@ -266,6 +334,7 @@ async function bootstrap(): Promise<void> {
 
     // 删掉的正是当前文档:退回空白页,并停止监听已不存在的文件
     if (doc.path === entry.path) {
+      rememberProgress()
       doc.reset()
       renderCount()
       window.api.watchFile(null)
@@ -314,14 +383,13 @@ async function bootstrap(): Promise<void> {
 
   /**
    * 从外部(双击文件、文件关联)打开文档。
-   * 若此前没有工作区,顺带把文件所在目录设为工作区,免得侧边栏空着。
+   * 文件树必须跟随「当下这个文件」:只要文件不在当前工作区里,
+   * 就以它所在目录重建树,而不是沿用上次记住的、无关的默认工作区。
    */
-  async function openWithWorkspace(filePath: string): Promise<void> {
-    if (!tree.rootPath) {
-      const dir = dirName(filePath)
-      if (dir) await setWorkspace(dir)
-    }
-    await openPath(filePath)
+  async function openWithWorkspace(filePath: string, restoreReading = true): Promise<void> {
+    const dir = dirName(filePath)
+    if (dir && !isPathInside(tree.rootPath, filePath)) await setWorkspace(dir)
+    await openPath(filePath, false, restoreReading)
   }
 
   /** 切换工作区。树与标题必须一起更新,统一收在这里避免调用方各写一遍 */
@@ -430,6 +498,7 @@ async function bootstrap(): Promise<void> {
   const handlers: Partial<Record<MenuChannel, () => void>> = {
     'menu:file-new': () => {
       if (!confirmDiscard()) return
+      rememberProgress()
       doc.reset()
       renderCount()
       // 新文档尚无对应文件,停止监听
@@ -511,6 +580,7 @@ async function bootstrap(): Promise<void> {
 
   // 关窗前主进程请求保存,必须回执,否则它会一直等到超时
   window.api.onSaveRequest(() => {
+    rememberProgress()
     void (async () => {
       const saved = await save(false)
       window.api.replySaveResult(saved)
@@ -530,14 +600,14 @@ async function bootstrap(): Promise<void> {
     void openPath(filePath, true)
   })
 
-  // 应用运行期间用户又双击了文件
+  // 应用运行期间用户又双击了文件(也可能是 AI 来源跳转)
   window.api.onOpenFile((filePath, source) => void (async () => {
-    if (!source || doc.path !== filePath) await openWithWorkspace(filePath)
-    if (source && doc.path === filePath) {
+    if (doc.path !== filePath) await openWithWorkspace(filePath, !source)
+    if (source) {
       const match = editor.revealSource(source)
       notify(match === 'exact' ? '已定位引用片段' : match === 'partial' ? '仅匹配到部分内容，文档可能已变化，请核对引用' : '引用片段已找不到，文档可能已变化，请重新提问')
     }
-  })().catch(() => notify('打开引用失败')))
+  })().catch(() => notify('打开文件失败')))
 
   // AI 面板
   const aiPanel = createAiPanel(el('#ai-panel'), {
@@ -562,12 +632,12 @@ async function bootstrap(): Promise<void> {
     }
   })
 
-  // 恢复上次的工作区
-  const lastWorkspace = await window.api.getLastWorkspace()
-  if (lastWorkspace) await setWorkspace(lastWorkspace)
-
-  // 双击文件启动时,路径由主进程从命令行参数中解析后暂存,这里取回
+  // 双击文件启动时,路径由主进程从命令行参数中解析后暂存,这里先取回。
+  // 有该文件时不再恢复旧工作区,直接由 openWithWorkspace 以文件所在目录建树,
+  // 避免先加载一个无关目录再被替换掉。
   const pendingFile = await window.api.takePendingFile()
+  const lastWorkspace = await window.api.getLastWorkspace()
+  if (lastWorkspace && !pendingFile) await setWorkspace(lastWorkspace)
   if (pendingFile) await openWithWorkspace(pendingFile)
 
   // 自动化验证钩子。系统对话框无法被脚本驱动,故暴露内部动作以便端到端检查;

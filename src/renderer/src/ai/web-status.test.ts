@@ -3,7 +3,7 @@ import { loadAnswerMode, saveAnswerMode, webStatusLabel } from './web-status'
 import type { AiWebSearchStatus } from '@shared/ipc'
 beforeEach(() => localStorage.clear())
 it('remembers an explicitly selected mode without saving model credentials', () => {
-  expect(loadAnswerMode(false)).toBe('notes')
+  expect(loadAnswerMode(false)).toBe('auto')
   saveAnswerMode('notes-web'); expect(loadAnswerMode(false)).toBe('notes-web')
   saveAnswerMode('general'); expect(loadAnswerMode(true)).toBe('general')
   expect(Object.keys(localStorage)).toEqual(['mdedit.ai.mode.v1'])

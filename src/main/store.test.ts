@@ -23,6 +23,19 @@ it('encrypts keys in persisted settings and decrypts only for configuration read
   expect(JSON.parse(saved).aiConfig.apiKey).toBeUndefined()
   expect(store.getAiConfig().apiKey).toBe('dummy-key')
 })
+it('persists reading progress per file and normalizes bad values', async () => {
+  mocks.readFileSync.mockReturnValue('{}')
+  const store = await import('./store')
+  store.setReadingProgress('/docs/a.md', { ratio: 2.5, cursor: 12, updatedAt: 0 })
+  expect(store.getReadingProgress('/docs/a.md')).toMatchObject({ ratio: 1, cursor: 12 })
+
+  store.setReadingProgress('/docs/a.md', { ratio: NaN, cursor: -3, updatedAt: 0 })
+  expect(store.getReadingProgress('/docs/a.md')).toMatchObject({ ratio: 0, cursor: null })
+
+  store.setReadingProgress('/docs/b.md', { ratio: 0.4, cursor: null, updatedAt: 0 })
+  expect(store.getReadingProgress('/docs/b.md')).toMatchObject({ ratio: 0.4, cursor: null })
+  expect(store.getReadingProgress('')).toBeNull()
+})
 it('reports persistence errors and does not cache unsuccessful saves', async () => {
   mocks.readFileSync.mockReturnValue('{}')
   const store = await import('./store')

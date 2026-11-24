@@ -8,6 +8,7 @@ import {
   type AiProfile,
   type AiPrivacySettings,
   type RagStatus,
+  type ReadingProgress,
   type ExternalApp,
   type FileEntry,
   type FileKind,
@@ -108,6 +109,12 @@ const api: RendererApi = {
 
   setLastWorkspace: (dirPath: string): Promise<void> =>
     ipcRenderer.invoke('workspace:set-last', dirPath),
+
+  getReadingProgress: (filePath: string): Promise<ReadingProgress | null> =>
+    ipcRenderer.invoke('app:get-reading-progress', filePath),
+
+  setReadingProgress: (filePath: string, progress: ReadingProgress): Promise<void> =>
+    ipcRenderer.invoke('app:set-reading-progress', filePath, progress),
 
   setDocumentState: (fileName: string | null, dirty: boolean): void => {
     ipcRenderer.send('window:document-state', fileName, dirty)

@@ -78,9 +78,12 @@ async function killApp(app: ElectronApplication): Promise<void> {
  * 启动应用。每次启动用独立 userData,避免上次的 settings.json(工作区、
  * 最近文件)串进断言;测试钩子由 --enable-test-hooks 开关开启。
  */
-export async function launchApp(options: { env?: NodeJS.ProcessEnv } = {}): Promise<AppHarness> {
+export async function launchApp(
+  options: { env?: NodeJS.ProcessEnv; args?: string[] } = {}
+): Promise<AppHarness> {
   const userData = mkdtempSync(join(tmpdir(), 'mdedit-e2e-'))
-  const args = [MAIN, `--user-data-dir=${userData}`, '--enable-test-hooks']
+  // 末尾的附加参数可模拟「双击文件」时系统传入的文档路径
+  const args = [MAIN, `--user-data-dir=${userData}`, '--enable-test-hooks', ...(options.args ?? [])]
   // CI 的 Linux 容器未配置 SUID sandbox helper,不关掉沙箱 Electron 会直接 fatal 退出。
   // 仅测试环境使用,不影响正式产物的安全设置。
   if (process.platform === 'linux') args.push('--no-sandbox')

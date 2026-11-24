@@ -1,7 +1,13 @@
 import { Crepe } from '@milkdown/crepe'
-import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import type { Ctx } from '@milkdown/kit/ctx'
+import {
+  editorViewCtx,
+  editorViewOptionsCtx,
+  remarkStringifyOptionsCtx
+} from '@milkdown/kit/core'
 import { remarkPreserveEmptyLinePlugin } from '@milkdown/kit/preset/commonmark'
 import { remarkGFMPlugin } from '@milkdown/kit/preset/gfm'
+import { TextSelection } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { replaceAll } from '@milkdown/kit/utils'
 import { displayWidth } from './display-width'
@@ -16,6 +22,15 @@ import {
   searchPlugin,
   setQuery
 } from '../search/search-plugin'
+import { createMoveDragProps } from './drag-move'
+import {
+  createFormatPainterPlugin,
+  FORMAT_PAINTER_ICON,
+  isFormatPainterActive,
+  PROGRAMMATIC_SELECTION,
+  toggleFormatPainter
+} from './format-painter'
+import { attachTableContextMenu } from './table-menu'
 
 /** 编辑器内容变化的回调 */
 export type MarkdownChangeHandler = (markdown: string) => void
@@ -45,12 +60,18 @@ export interface EditorHandle {
   revealSource: (source: AiSource) => CitationMatch
   /** 查找替换 */
   search: EditorSearch
-  /** 整篇替换内容,用于切换文件 */
+  /** 整篇替换内容,用于切换文件与大纲拖动 */
   setMarkdown: (markdown: string) => void
   /** 订阅内容变化 */
   onChange: (handler: MarkdownChangeHandler) => void
   /** 让编辑区取得焦点 */
   focus: () => void
+  /** 当前光标偏移,用于保存阅读进度 */
+  getCursor: () => number
+  /** 恢复光标位置:只改选区,不滚动、不触发格式刷 */
+  setCursor: (pos: number) => void
+  /** 订阅格式刷的激活状态,供状态栏给出提示 */
+  onFormatPainterChange: (handler: (active: boolean) => void) => void
   /** 释放编辑器 */
   destroy: () => Promise<void>
 }
@@ -66,12 +87,29 @@ export async function createEditor(
   root: HTMLElement,
   defaultValue: string
 ): Promise<EditorHandle> {
+  let painterListener: (active: boolean) => void = () => {}
+  // 编辑器内部拖动一律按「剪切」处理
+  const moveDrag = createMoveDragProps()
+
   const crepe = new Crepe({
     root,
     defaultValue,
     features: {
       [Crepe.Feature.AI]: false,
       [Crepe.Feature.Latex]: false
+    },
+    featureConfigs: {
+      // 浮动工具栏补一个格式刷:选中源文字 -> 点刷子 -> 选中目标文字即应用
+      [Crepe.Feature.Toolbar]: {
+        buildToolbar: (builder) => {
+          builder.getGroup('formatting').addItem('format-painter', {
+            icon: FORMAT_PAINTER_ICON,
+            label: '格式刷',
+            active: (ctx) => isFormatPainterActive(ctx.get(editorViewCtx)),
+            onRun: (ctx) => toggleFormatPainter(ctx.get(editorViewCtx))
+          })
+        }
+      }
     }
   })
 
@@ -88,34 +126,47 @@ export async function createEditor(
       ...ctx.get(remarkGFMPlugin.options.key),
       stringLength: displayWidth
     })
+
+    // 放在 DirectEditorProps 上而非插件 props 里,优先级高于各插件的
+    // handleDrop,确保内部文本拖放一定走剪切分支。
+    ctx.update(editorViewOptionsCtx, (prev) => ({
+      ...prev,
+      ...moveDrag,
+      handleDOMEvents: { ...prev.handleDOMEvents, ...moveDrag.handleDOMEvents }
+    }))
   })
 
   // 2) 该插件会把空段落序列化成 <br />,导致 HTML 标签混进 Markdown 源码,移除之
   await crepe.editor.remove(remarkPreserveEmptyLinePlugin)
 
-  // 查找高亮以 ProseMirror decoration 实现,须在创建前注册
+  // 查找高亮与格式刷以 ProseMirror 插件实现,须在创建前注册
   crepe.editor.use(searchPlugin)
+  crepe.editor.use(createFormatPainterPlugin((active) => painterListener(active)))
 
   await crepe.create()
 
+  const ctx: Ctx = crepe.editor.action((c) => c)
+  const view = ctx.get(editorViewCtx)
+  const detachTableMenu = attachTableContextMenu(view, () => ctx)
+
   const withView = <T,>(fn: (view: EditorView) => T): T =>
-    crepe.editor.action((ctx) => fn(ctx.get(editorViewCtx)))
+    crepe.editor.action((c) => fn(c.get(editorViewCtx)))
 
   return {
     getMarkdown: () => normalizeTail(crepe.getMarkdown()),
-    getSelection: () => withView(view => {
-      const { from, to } = view.state.selection
-      return { from, to, text: view.state.doc.textBetween(from, to, '\n') }
+    getSelection: () => withView(currentView => {
+      const { from, to } = currentView.state.selection
+      return { from, to, text: currentView.state.doc.textBetween(from, to, '\n') }
     }),
-    revealSource: source => withView(view => revealCitation(view, normalizeTail(crepe.getMarkdown()), source)),
+    revealSource: source => withView(currentView => revealCitation(currentView, normalizeTail(crepe.getMarkdown()), source)),
 
     search: {
-      setQuery: (query) => withView((view) => setQuery(view, query)),
-      next: () => withView((view) => moveMatch(view, 1)),
-      prev: () => withView((view) => moveMatch(view, -1)),
-      replaceCurrent: (replacement) => withView((view) => replaceCurrent(view, replacement)),
-      replaceAll: (replacement) => withView((view) => replaceAllMatches(view, replacement)),
-      clear: () => withView((view) => clearSearch(view))
+      setQuery: (query) => withView((currentView) => setQuery(currentView, query)),
+      next: () => withView((currentView) => moveMatch(currentView, 1)),
+      prev: () => withView((currentView) => moveMatch(currentView, -1)),
+      replaceCurrent: (replacement) => withView((currentView) => replaceCurrent(currentView, replacement)),
+      replaceAll: (replacement) => withView((currentView) => replaceAllMatches(currentView, replacement)),
+      clear: () => withView((currentView) => clearSearch(currentView))
     },
 
     setMarkdown: (markdown) => {
@@ -132,7 +183,23 @@ export async function createEditor(
       root.querySelector<HTMLElement>('.ProseMirror')?.focus()
     },
 
+    getCursor: () => withView(currentView => currentView.state.selection.head),
+
+    setCursor: (pos) => withView(currentView => {
+      const max = currentView.state.doc.content.size
+      const safe = Math.max(0, Math.min(pos, max))
+      const selection = TextSelection.near(currentView.state.doc.resolve(safe))
+      currentView.dispatch(
+        currentView.state.tr.setSelection(selection).setMeta(PROGRAMMATIC_SELECTION, true)
+      )
+    }),
+
+    onFormatPainterChange: (handler) => {
+      painterListener = handler
+    },
+
     destroy: async () => {
+      detachTableMenu()
       await crepe.destroy()
     }
   }

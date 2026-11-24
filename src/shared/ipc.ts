@@ -104,6 +104,19 @@ export interface ExternalApp {
   path: string
 }
 
+/**
+ * 单个文件的阅读进度。以文件绝对路径为键持久化,
+ * ratio 用比例而非像素,这样窗口大小或字体变化后仍能回到大致相同的位置。
+ */
+export interface ReadingProgress {
+  /** 0~1 的滚动比例 */
+  ratio: number
+  /** 光标在编辑器文档中的偏移;null 表示不恢复光标 */
+  cursor: number | null
+  /** 更新时间戳,用于淘汰长期未打开的记录 */
+  updatedAt: number
+}
+
 /** 统一的操作结果,避免渲染进程直接吃到主进程异常栈 */
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -179,6 +192,11 @@ export interface RendererApi {
   getLastWorkspace: () => Promise<string | null>
   /** 记录当前工作区 */
   setLastWorkspace: (dirPath: string) => Promise<void>
+
+  /** 读取某个文件上次保存的阅读进度 */
+  getReadingProgress: (filePath: string) => Promise<ReadingProgress | null>
+  /** 记录某个文件当前的阅读进度 */
+  setReadingProgress: (filePath: string, progress: ReadingProgress) => Promise<void>
 
   /** 同步窗口标题上的文件名与未保存标记 */
   setDocumentState: (fileName: string | null, dirty: boolean) => void
@@ -267,7 +285,7 @@ export interface AiQueryRequest {
   useWeb: boolean
   history?: AiTurn[]
   context?: AiDocumentContext
-  mode?: 'notes' | 'notes-web' | 'general'
+  mode?: 'auto' | 'notes' | 'notes-web' | 'general'
 }
 
 export interface AiPrivacySettings {
@@ -286,6 +304,7 @@ export interface AiProfile {
 }
 
 export type AiEventPayload =
+  | { type: 'tool'; name: string; state: 'running' | 'done' | 'error' }
   | { type: 'web-status'; status: AiWebSearchStatus }
   | { type: 'stage'; stage: 'rewriting' | 'local' | 'web' | 'answering' }
   | { type: 'delta'; text: string }

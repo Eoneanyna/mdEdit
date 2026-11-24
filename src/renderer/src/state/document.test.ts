@@ -29,6 +29,12 @@ class FakeEditor implements EditorHandle {
 
   focus(): void {}
 
+  getCursor(): number {
+    return 0
+  }
+  setCursor(): void {}
+  onFormatPainterChange(): void {}
+
   destroy(): Promise<void> {
     return Promise.resolve()
   }

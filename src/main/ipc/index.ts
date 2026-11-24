@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain } from 'electron'
+import type { ReadingProgress } from '@shared/ipc'
 import { updateDocState } from './close-guard'
 import { registerExternalIpc } from './external'
 import { registerFileIpc } from './files'
@@ -30,6 +31,17 @@ function registerWindowIpc(): void {
   ipcMain.handle('app:get-autosave', () => store.getAutoSave())
 
   ipcMain.handle('app:take-pending-file', () => takePendingFile())
+
+  ipcMain.handle('app:get-reading-progress', (_event, filePath: string) =>
+    store.getReadingProgress(filePath)
+  )
+
+  ipcMain.handle(
+    'app:set-reading-progress',
+    (_event, filePath: string, progress: ReadingProgress) => {
+      store.setReadingProgress(filePath, progress)
+    }
+  )
 }
 
 export function registerIpc(): void {

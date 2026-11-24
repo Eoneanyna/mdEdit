@@ -34,6 +34,15 @@ test.beforeEach(async () => {
       calls.push(data)
       if (hold) return
       if (modelStatus !== 200) { res.writeHead(modelStatus); res.end('secret-upstream-body'); return }
+      if (data.tools) {
+        const last = data.messages.at(-1)
+        const followup = last.role === 'tool'
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: followup ? 'finish-1' : 'local-1', type: 'function', function: {
+          name: followup ? 'finish' : 'search_local', arguments: JSON.stringify(followup ? {} : { query: '青岚项目负责人' })
+        } }] } }] }))
+        return
+      }
       const prompt = data.messages.at(-1).content
       const rewriting = data.messages[0].content.includes('改写器')
       const answer = rewriting ? '青岚项目负责人是谁' : prompt.includes('外部网页（正文）') ? '笔记中的学习主题是 RAG [1]；根据联网网页，RAG 是检索增强生成 [2]。' : prompt.includes('陈小川') ? '负责人：陈小川 [1]' : '负责人：林知远 [1]'
@@ -66,6 +75,7 @@ test.afterEach(async () => {
 async function configure(workspace: string): Promise<void> {
   const { win, app } = harness!
   await win.evaluate(async ({ workspace, baseUrl }) => {
+    localStorage.setItem('mdedit.ai.mode.v1', 'notes')
     await window.api.setLastWorkspace(workspace)
     await window.api.setAiConfig({ provider: 'custom', model: 'test-model', apiKey: '', baseUrl, useLocal: true, useWeb: false })
   }, { workspace, baseUrl })
@@ -77,6 +87,19 @@ async function configure(workspace: string): Promise<void> {
   })
   await expect(win.locator('#ai-send')).toBeEnabled()
 }
+
+test('智能助手执行本地工具循环并显示执行记录与引用', async () => {
+  const { win } = harness!
+  await configure(makeWorkspace({ '项目.md': '青岚项目负责人：林知远' }))
+  await win.locator('#ai-mode').selectOption('auto')
+  await win.locator('#ai-question').fill('青岚项目负责人是谁？')
+  await win.locator('#ai-send').click()
+  await expect(win.locator('#ai-send')).toBeEnabled()
+  await expect(win.locator('.ai-answer')).toContainText('林知远')
+  await expect(win.locator('.ai-tool-trace')).toContainText('search_local：完成')
+  expect(calls).toHaveLength(3)
+  expect(calls[1].messages.some(m => m.role === 'tool')).toBe(true)
+})
 
 // 只在测试进程内替换公共 HTTP 传输层；保留真实的搜索解析、正文提取、联合筛选与 IPC。
 async function mockPublicSearch(fail = false): Promise<void> {

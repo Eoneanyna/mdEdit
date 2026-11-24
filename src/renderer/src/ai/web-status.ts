@@ -1,13 +1,13 @@
 import type { AiSource, AiWebSearchStatus } from '@shared/ipc'
 
 const MODE_KEY = 'mdedit.ai.mode.v1'
-export type AnswerMode = 'notes' | 'notes-web' | 'general'
+export type AnswerMode = 'auto' | 'notes' | 'notes-web' | 'general'
 export function loadAnswerMode(useWeb: boolean): AnswerMode {
   try {
     const saved = localStorage.getItem(MODE_KEY)
-    if (saved === 'notes' || saved === 'notes-web' || saved === 'general') return saved
+    if (saved === 'auto' || saved === 'notes' || saved === 'notes-web' || saved === 'general') return saved
   } catch {}
-  return useWeb ? 'notes-web' : 'notes'
+  return useWeb ? 'notes-web' : 'auto'
 }
 export function saveAnswerMode(mode: AnswerMode): boolean {
   try { localStorage.setItem(MODE_KEY, mode); return true } catch { return false }

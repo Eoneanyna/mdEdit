@@ -1,7 +1,7 @@
 ﻿import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, safeStorage } from 'electron'
-import type { ExternalApp, FileKind } from '@shared/ipc'
+import type { ExternalApp, FileKind, ReadingProgress } from '@shared/ipc'
 
 interface Settings {
   aiConfig?: Omit<AiConfigStore, 'apiKey'> & { apiKey?: string; encryptedKey?: string }
@@ -16,6 +16,8 @@ interface Settings {
   fileFilter: FileKind[] | null
   /** 鏄惁鍦ㄥ仠姝㈣緭鍏ュ悗鑷姩淇濆瓨 */
   autoSave: boolean
+  /** 每个文件上次的阅读进度,键为文件绝对路径 */
+  readingProgress: Record<string, ReadingProgress>
 }
 
 const DEFAULTS: Settings = {
@@ -23,7 +25,8 @@ const DEFAULTS: Settings = {
   recentFiles: [],
   externalApps: {},
   fileFilter: null,
-  autoSave: true
+  autoSave: true,
+  readingProgress: {}
 }
 
 const MAX_RECENT = 10
@@ -91,6 +94,41 @@ export function getFileFilter(): FileKind[] | null {
 
 export function setFileFilter(kinds: FileKind[] | null): void {
   write({ ...read(), fileFilter: kinds })
+}
+
+/** 阅读进度最多保留最近使用的文件数,避免设置文件无限膨胀 */
+const MAX_PROGRESS_ENTRIES = 200
+
+export function getReadingProgress(filePath: string): ReadingProgress | null {
+  if (typeof filePath !== 'string' || filePath.length === 0) return null
+  return read().readingProgress[filePath] ?? null
+}
+
+/**
+ * 记录阅读进度。数据来自渲染进程,边界上一律做校验与归一化,
+ * 非法值不会写进设置文件,也不会把已有的进度覆盖成脏数据。
+ */
+export function setReadingProgress(filePath: string, progress: ReadingProgress): void {
+  if (typeof filePath !== 'string' || filePath.length === 0) return
+  if (!progress || typeof progress !== 'object') return
+
+  const rawRatio = Number(progress.ratio)
+  const ratio = Number.isFinite(rawRatio) ? Math.min(1, Math.max(0, rawRatio)) : 0
+  const rawCursor = progress.cursor
+  const cursor =
+    typeof rawCursor === 'number' && Number.isInteger(rawCursor) && rawCursor >= 0
+      ? rawCursor
+      : null
+
+  const current = read()
+  const entries = Object.entries({
+    ...current.readingProgress,
+    [filePath]: { ratio, cursor, updatedAt: Date.now() }
+  })
+    .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
+    .slice(0, MAX_PROGRESS_ENTRIES)
+
+  write({ ...current, readingProgress: Object.fromEntries(entries) })
 }
 
 export function getRememberedApps(kind: FileKind): ExternalApp[] {

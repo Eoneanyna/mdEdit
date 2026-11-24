@@ -6,6 +6,7 @@ import { searchLocalMd } from './search-local'
 import { ragSearch } from './search-rag'
 import { searchWeb } from './search-web'
 import { selectEvidence } from './select-evidence'
+import { runAgent } from './agent-loop'
 
 /** 与 Electron 解耦，供 IPC 和真实 API 冒烟测试共用。 */
 export async function queryAi(input: AiQueryRequest, workspace: string | null, signal?: AbortSignal,
@@ -14,6 +15,7 @@ export async function queryAi(input: AiQueryRequest, workspace: string | null, s
   const emit = (event: AiEventPayload): void => {
     if (!signal?.aborted) onEvent?.({ ...event, requestId: req.requestId || '' })
   }
+  if (req.mode === 'auto') return runAgent(req, workspace, signal, emit, preferences)
   const stage = (value: 'rewriting' | 'local' | 'web' | 'answering'): void => emit({ type: 'stage', stage: value })
   const notices: string[] = []
   let webSearch: AiWebSearchStatus = { state: 'disabled', query: '', candidates: 0, selected: 0, pages: 0, summaries: 0, attempts: [] }

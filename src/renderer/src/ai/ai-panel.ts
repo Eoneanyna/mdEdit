@@ -57,7 +57,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       </div>
       <div id="ai-rag-status"></div>
       </div>
-      <select class="ai-select" id="ai-mode" aria-label="回答模式"><option value="notes">笔记问答（不联网）</option><option value="notes-web">联网搜索＋文档（每轮实时检索）</option><option value="general">通用问答（不联网）</option></select>
+      <select class="ai-select" id="ai-mode" aria-label="回答模式"><option value="auto">智能助手（按需调用工具）</option><option value="notes">笔记问答（不联网）</option><option value="notes-web">联网搜索＋文档（每轮实时检索）</option><option value="general">通用问答（不联网）</option></select>
       <div class="ai-panel__privacy" id="ai-mode-hint"></div>
       <div class="ai-panel__messages" id="ai-messages" role="log" aria-label="问答记录"></div>
       <div class="ai-panel__status" id="ai-status" role="status" aria-live="polite"></div>
@@ -176,11 +176,11 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       ({ ok: '找到相关结果', empty: '没有结果', filtered: '候选均不相关', error: '访问失败或受限' }[attempt.outcome])).join('\n')
   }
   function updateMode(persist = false): void {
-    web.checked = mode.value === 'notes-web'
+    web.checked = mode.value === 'notes-web' || mode.value === 'auto'
     scope.disabled = busy || mode.value === 'general'
     el('ai-mode-hint').textContent = mode.value === 'notes-web'
       ? '每轮联网搜索并筛选网页，与所选文档一起回答；检索问题会发送给搜索引擎。'
-      : mode.value === 'notes' ? '本轮只查文档，不联网。需要实时网络资料请选择“联网搜索＋文档”。' : '只使用模型知识，不联网、不检索文档。'
+      : mode.value === 'auto' ? '助手按需检索、补查或反问；可能将查询发送到搜索引擎。仅本机模式下不会联网。' : mode.value === 'notes' ? '本轮只查文档，不联网。需要实时网络资料请选择“联网搜索＋文档”。' : '只使用模型知识，不联网、不检索文档。'
     if (persist && !saveAnswerMode(mode.value as AnswerMode)) status.textContent = '模式已切换，但保存失败，重启后需重新选择'
   }
   function setBusy(value: boolean): void {
@@ -359,7 +359,17 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
       status.textContent = '正在检索资料并生成回答…'
       unsubscribe = window.api.onAiEvent(event => {
         if (event.requestId !== requestId || current !== generation) return
-        if (event.type === 'stage') {
+        if (event.type === 'tool') {
+          status.textContent = `${event.name}：${event.state === 'running' ? '执行中' : event.state === 'done' ? '完成' : '失败'}`
+          if (!answerMessage) answerMessage = addMessage('ai', '')
+          let trace = answerMessage.querySelector('details.ai-tool-trace')
+          if (!trace) {
+            trace = document.createElement('details'); trace.className = 'ai-tool-trace'
+            const summary = document.createElement('summary'); summary.textContent = '工具执行记录'
+            trace.append(summary); answerMessage.prepend(trace)
+          }
+          const entry = document.createElement('div'); entry.textContent = status.textContent; trace.append(entry)
+        } else if (event.type === 'stage') {
           const labels = { rewriting: '正在理解追问…', local: '正在检索本地文档…', web: '正在搜索网页…', answering: '正在生成回答…' }
           status.textContent = labels[event.stage]
           if (event.stage === 'local') void ragStatus.refresh()
@@ -371,7 +381,7 @@ export function createAiPanel(container: HTMLElement, deps: AiPanelDeps): { work
           if (renderTimer === undefined) renderTimer = window.setTimeout(paint, 50)
         }
       })
-      const result = await window.api.aiQuery({ ...config(), mode: mode.value as 'notes' | 'notes-web' | 'general', useLocal: mode.value !== 'general' && scope.value === 'workspace' && local.checked,
+      const result = await window.api.aiQuery({ ...config(), mode: mode.value as AnswerMode, useLocal: mode.value !== 'general' && scope.value === 'workspace' && local.checked,
         context, requestId, question: text, history: turns.slice(-6) })
       if (current !== generation) return
       if (!result.ok) {

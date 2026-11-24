@@ -33,6 +33,7 @@ export function registerAiIpc(): void {
       return await guard(async () => {
         const request = validateRequest(req)
         const privacy = profile.getPrivacy()
+        if (privacy.localOnly && request.mode === 'auto') request.useWeb = false
         enforceLocalPrivacy(request, privacy)
         const preferences = privacy.personalize ? profile.get().markdown : undefined
         const result = await queryAi(request, store.getLastWorkspace(), controller.signal,

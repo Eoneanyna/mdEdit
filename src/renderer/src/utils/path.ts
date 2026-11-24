@@ -14,3 +14,20 @@ export function dirName(fullPath: string): string | null {
   const index = Math.max(fullPath.lastIndexOf('\\'), fullPath.lastIndexOf('/'))
   return index > 0 ? fullPath.slice(0, index) : null
 }
+
+/** 统一分隔符、去掉末尾斜杠,并按 Windows 的大小写不敏感规则比较 */
+function normalize(fullPath: string): string {
+  return fullPath.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * targetPath 是否位于 rootPath 目录内(含其自身)。
+ * 用于判断双击打开的文件能不能在现有文件树里找到。
+ */
+export function isPathInside(rootPath: string | null, targetPath: string): boolean {
+  if (!rootPath) return false
+  const root = normalize(rootPath)
+  if (!root) return false
+  const target = normalize(targetPath)
+  return target === root || target.startsWith(`${root}/`)
+}

@@ -11,7 +11,7 @@ export const PROVIDER_URLS = {
 export async function callOpenAICompat(
   req: AiQueryRequest, systemPrompt: string, userPrompt: string, signal?: AbortSignal,
   onDelta?: (text: string) => void,
-  options: { timeoutMs?: number; maxTokens?: number } = {}
+  options: { timeoutMs?: number; maxTokens?: number; messages?: unknown[]; tools?: unknown[]; onMessage?: (message: CompletionMessage) => void } = {}
 ): Promise<string> {
   const baseUrl = req.baseUrl?.trim() || (req.provider === 'custom' ? '' : PROVIDER_URLS[req.provider])
   if (!baseUrl) throw new Error('自定义供应商需要填写 Base URL')
@@ -36,7 +36,7 @@ export async function callOpenAICompat(
   try {
     const res = await fetch(url, {
       method: 'POST', headers, redirect: 'error',
-      body: JSON.stringify({ model: req.model, messages, temperature: 0.2, max_tokens: options.maxTokens ?? 2048, ...(onDelta ? { stream: true } : {}) }),
+      body: JSON.stringify({ model: req.model, messages: options.messages ?? messages, ...(options.tools ? { tools: options.tools } : {}), temperature: 0.2, max_tokens: options.maxTokens ?? 2048, ...(onDelta ? { stream: true } : {}) }),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(options.timeoutMs ?? 90_000)]) : AbortSignal.timeout(options.timeoutMs ?? 90_000)
     })
     if (!res.ok) {
@@ -50,7 +50,9 @@ export async function callOpenAICompat(
     if (onDelta && res.headers.get('content-type')?.includes('text/event-stream')) {
       return await readCompletionStream(res, onDelta)
     }
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
+    const data = await res.json() as { choices?: Array<{ message?: CompletionMessage }> }
+    const message = data.choices?.[0]?.message
+    if (options.onMessage && message) { options.onMessage(message); return typeof message.content === 'string' ? message.content : '' }
     const content = data.choices?.[0]?.message?.content
     if (typeof content !== 'string' || !content.trim()) throw new Error('模型返回空内容，请重试或更换模型')
     onDelta?.(content)
@@ -61,4 +63,10 @@ export async function callOpenAICompat(
     if (error instanceof TypeError) throw new Error('无法连接模型服务，请检查网络和 Base URL')
     throw error
   }
+}
+
+export interface CompletionMessage {
+  role?: string
+  content?: string | null
+  tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>
 }
