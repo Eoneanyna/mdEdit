@@ -132,7 +132,7 @@ rc.3 将联网选项独立显示为「联网搜索＋文档（每轮实时检索
 | Linux | `mdEdit-<版本>-linux-x86_64.AppImage` | 免安装,`chmod +x` 后直接运行 |
 | Linux | `mdEdit-<版本>-linux-amd64.deb` | Debian / Ubuntu |
 
-> **说明**:三平台安装包都由 CI 在对应系统的 runner 上构建并发布到 Releases,不需要本地上传。macOS 的 `.dmg` 受签名机制限制,**必须在 macOS 上打包**,无法交叉编译,因此由 macOS runner 产出。自行构建方式见下文。
+> **说明**:三平台安装包都由 CI 在对应系统的 runner 上构建,生成 Releases 草稿后由维护者确认发布,不需要本地上传。macOS 的 `.dmg` 受签名机制限制,**必须在 macOS 上打包**,无法交叉编译,因此由 macOS runner 产出。自行构建方式见下文。
 
 ## 技术栈
 
@@ -181,7 +181,7 @@ npm start             # 以生产模式预览
 
 ### 发版
 
-发版由 [release.yml](.github/workflows/release.yml) 在 CI 中完成:三平台安装包由各自系统的 runner 构建,合并后**自动公开发布**到 Releases 并生成 release notes,不需要本地打包、上传或手动点 Publish。
+构建与上传由 [release.yml](.github/workflows/release.yml) 在 CI 中完成:三平台安装包由各自系统的 runner 构建,合并后生成带 release notes 的**草稿 Release**。草稿对外不可见,由维护者核对资产后在 GitHub 上手动点 **Publish release** 才公开发布 —— 留一道人工确认,避免误发。
 
 先把 `package.json` 的 `version` 改成新版本并推到 `main`,再任选一种触发方式:
 
@@ -189,7 +189,7 @@ npm start             # 以生产模式预览
 git tag -a v0.2.1 -m "mdEdit v0.2.1" && git push origin v0.2.1
 ```
 
-或在 GitHub **Actions → release → Run workflow** 填版本号(留空即取 `package.json`),CI 会自行创建 tag 并发布,不用本地 git 命令。两种方式都会校验版本号与 `package.json` 一致;手动触发时若该版本已公开发布会被拦截,避免覆盖。勾选 `dry_run` 可只构建验证、不发布。`main` 的日常提交只跑 `ci.yml` 的测试,不会自动发版。
+或在 GitHub **Actions → release → Run workflow** 填版本号(留空即取 `package.json`),CI 会自行创建 tag,不用本地 git 命令。两种方式都会校验版本号与 `package.json` 一致;手动触发时若该版本已公开发布会被拦截,避免覆盖。勾选 `dry_run` 可只构建验证、不创建 Release。重跑同一 tag 只会更新那份草稿,不会误发布。`main` 的日常提交只跑 `ci.yml` 的测试,不会自动发版。
 
 ### 国内网络说明
 

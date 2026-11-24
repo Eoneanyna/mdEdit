@@ -1,10 +1,10 @@
 name: release
 
-# 发版全程由 CI 完成,不需要本地打 tag、也不需要手动点 Publish:
-#   1) 推送 v* tag:CI 构建三平台安装包并公开发布 Release
+# CI 负责构建并生成 Release 草稿,公开发布由仓库维护者人工确认后点 Publish:
+#   1) 推送 v* tag:CI 构建三平台安装包并生成草稿 Release
 #   2) Actions 页面手动 Run workflow:填版本号(留空取 package.json),
-#      CI 校验版本、创建 tag、构建三平台并公开发布
-# 手动触发可勾 dry_run 只验证打包链路、不发布。
+#      CI 校验版本、创建 tag、构建三平台并生成草稿,不用本地 git 命令
+# 手动触发可勾 dry_run 只验证打包链路、不创建 Release。
 # 版本号必须与 package.json 一致;已公开发布过的版本会被拦截,避免覆盖。
 on:
   push:
@@ -65,10 +65,10 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "版本校验通过,准备发布 $TAG"
 
-      # 手动发版时防止把已发布的 Release 覆盖掉;草稿则允许补齐资产后公开。
-      # 自动 tag 推送不查:刚创建的 tag 不可能有已发布 Release,重跑也应允许更新资产。
+      # 防止把已公开发布的 Release 覆盖或误改回草稿(例如重跑旧 tag 的工作流);
+      # 草稿则允许补齐资产后继续保持草稿,等待人工发布。
       - name: Guard published release
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != true }}
+        if: ${{ inputs.dry_run != true }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -81,9 +81,9 @@ jobs:
               echo "::error::$TAG 已公开发布过,请先 bump package.json 版本再发版"
               exit 1
             fi
-            echo "发现 $TAG 的草稿 Release,本轮会补齐资产并公开发布"
+            echo "发现 $TAG 的草稿 Release,本轮会补齐资产并保持草稿,等待人工发布"
           else
-            echo "$TAG 尚无 Release,将创建 tag 并发布"
+            echo "$TAG 尚无 Release,将创建 tag 并生成草稿"
           fi
 
   build:
@@ -137,7 +137,7 @@ jobs:
           retention-days: 7
 
   release:
-    name: publish release
+    name: create release draft
     needs: [meta, build]
     if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-latest
@@ -161,5 +161,6 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
           prerelease: ${{ contains(needs.meta.outputs.tag, '-') }}
-          # 不设 draft:action 默认公开发布;若该 tag 已有草稿,
-          # 会在补齐资产后直接把它发布,无需人工点 Publish。
+          # 只生成草稿,对外不可见;仓库维护者核对资产后手动点 Publish 才公开。
+          # 重跑同一 tag 时也只是更新这份草稿,不会误发布。
+          draft: true
